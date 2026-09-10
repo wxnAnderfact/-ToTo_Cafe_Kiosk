@@ -39,6 +39,23 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String get _selectedCategoryLabel =>
       _categories[_selectedCategoryIndex].label;
 
+  Stream<List<model.MenuItem>>? _menuStream;
+
+  @override
+  void initState() {
+    super.initState();
+    // Delay slightly to ensure context is fully ready for Provider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        _updateStream();
+      });
+    });
+  }
+
+  void _updateStream() {
+    _menuStream = context.read<MenuService>().watchByCategory(_selectedCategoryKey);
+  }
+
   // ── Navigation ──────────────────────────────────────────────────────────
 
   void _onProceedToPayment() {
@@ -125,7 +142,10 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   label: _categories[index].label,
                   isSelected: isSelected,
                   onTap: () {
-                    setState(() => _selectedCategoryIndex = index);
+                    setState(() {
+                      _selectedCategoryIndex = index;
+                      _updateStream();
+                    });
                   },
                 );
               },
@@ -139,7 +159,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   // ── Center: Product Grid (Firestore-backed) ─────────────────────────────
 
   Widget _buildProductGrid() {
-    final menuService = context.read<MenuService>();
 
     return Container(
       color: kColorBg,
@@ -163,7 +182,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           // Product grid — real-time Firestore stream
           Expanded(
             child: StreamBuilder<List<model.MenuItem>>(
-              stream: menuService.watchByCategory(_selectedCategoryKey),
+              stream: _menuStream,
               builder: (context, snapshot) {
                 // ── Loading state ──────────────────────────────────────
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -174,35 +193,53 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
                 // ── Error state ───────────────────────────────────────
                 if (snapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(kSpace24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: kColorTextMuted.withValues(alpha: 0.5),
+                  // If we already have data, keep showing it and just
+                  // notify the user with a non-destructive SnackBar.
+                  if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Connection issue: ${snapshot.error}'),
+                            duration: const Duration(seconds: 4),
+                            behavior: SnackBarBehavior.floating,
                           ),
-                          const SizedBox(height: kSpace12),
-                          Text(
-                            'Failed to load menu',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(color: kColorTextMuted),
-                          ),
-                          const SizedBox(height: kSpace8),
-                          Text(
-                            '${snapshot.error}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
+                        );
+                      }
+                    });
+                    // Fall through to render data below
+                  } else {
+                    // No cached data at all — show full-screen error
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(kSpace24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: kColorTextMuted.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(height: kSpace12),
+                            Text(
+                              'Failed to load menu',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(color: kColorTextMuted),
+                            ),
+                            const SizedBox(height: kSpace8),
+                            Text(
+                              '${snapshot.error}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  }
                 }
 
                 final items = snapshot.data ?? [];
@@ -242,7 +279,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     maxCrossAxisExtent: 240,
                     mainAxisSpacing: kSpace16,
                     crossAxisSpacing: kSpace16,
-                    childAspectRatio: 0.72,
+                    childAspectRatio: 0.65,
                   ),
                   itemCount: items.length,
                   itemBuilder: (context, index) {
@@ -294,11 +331,15 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 padding: const EdgeInsets.all(kSpace16),
                 child: Row(
                   children: [
-                    Text(
-                      'Your Order',
-                      style: theme.textTheme.headlineSmall,
+                    Expanded(
+                      child: Text(
+                        'Your Order',
+                        style: theme.textTheme.headlineSmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: kSpace8),
                     // Item count badge
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -545,7 +586,10 @@ class _ProductCard extends StatelessWidget {
           Expanded(
             flex: 2,
             child: Padding(
-              padding: const EdgeInsets.all(kSpace12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: kSpace12,
+                vertical: kSpace8,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -559,15 +603,21 @@ class _ProductCard extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        '฿${price.toStringAsFixed(0)}',
-                        style:
-                            Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                      Flexible(
+                        child: Text(
+                          '฿${price.toStringAsFixed(0)}',
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      const SizedBox(width: kSpace8),
                       SizedBox(
-                        height: 32,
+                        height: 28,
                         child: ElevatedButton(
                           onPressed: onAddToCart,
                           style: ElevatedButton.styleFrom(

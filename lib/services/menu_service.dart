@@ -43,10 +43,6 @@ class MenuService {
     return _collection
         .where('category', isEqualTo: category)
         .snapshots()
-        .timeout(
-          const Duration(seconds: 8),
-          onTimeout: (sink) => sink.addError(Exception('Firestore stream timeout: could not fetch menu items')),
-        )
         .map((snapshot) {
       final items = snapshot.docs
           .map((doc) => MenuItem.fromSnapshot(doc))

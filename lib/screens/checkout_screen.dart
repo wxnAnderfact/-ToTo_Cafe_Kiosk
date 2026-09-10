@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/cart_provider.dart';
+import '../models/order.dart';
 import '../theme.dart';
 
 /// หน้า 3: Checkout
@@ -93,6 +96,8 @@ class CheckoutScreen extends StatelessWidget {
   // ── Left: Order Summary ─────────────────────────────────────────────────
 
   Widget _buildOrderSummary(BuildContext context, ThemeData theme) {
+    final cart = context.watch<CartProvider>();
+
     return Container(
       color: kColorBg,
       padding: const EdgeInsets.all(kSpace24),
@@ -102,25 +107,71 @@ class CheckoutScreen extends StatelessWidget {
           Text('Order Summary', style: theme.textTheme.headlineMedium),
           const SizedBox(height: kSpace24),
 
-          // TODO: List order items from cart state
           Expanded(
-            child: Center(
-              child: Text(
-                'No items yet',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: kColorTextMuted),
-              ),
-            ),
+            child: cart.isEmpty
+                ? Center(
+                    child: Text(
+                      'No items yet',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: kColorTextMuted),
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: cart.items.length,
+                    separatorBuilder: (context, index) => const Divider(height: 24),
+                    itemBuilder: (context, index) {
+                      final item = cart.items[index];
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.name,
+                                  style: theme.textTheme.titleSmall,
+                                ),
+                                if (item.sweetness != SweetnessLevel.hundred ||
+                                    item.milkType != MilkType.regular)
+                                  Padding(
+                                    padding:
+                                        const EdgeInsets.only(top: kSpace4),
+                                    child: Text(
+                                      'Sweetness: ${item.sweetness.label} • Milk: ${item.milkType.label}',
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Text('x${item.quantity}',
+                              style: theme.textTheme.bodyMedium),
+                          const SizedBox(width: kSpace16),
+                          Text(
+                            '฿${item.lineTotal.toStringAsFixed(2)}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
           ),
 
           // ── Totals ────────────────────────────────────────────────────
           const Divider(),
           const SizedBox(height: kSpace12),
-          _TotalRow(label: 'Subtotal', value: '฿0.00', theme: theme),
+          _TotalRow(
+            label: 'Subtotal',
+            value: '฿${cart.subtotal.toStringAsFixed(2)}',
+            theme: theme,
+          ),
           const SizedBox(height: kSpace8),
           _TotalRow(
             label: 'VAT 7%',
-            value: '฿0.00',
+            value: '฿${cart.vat.toStringAsFixed(2)}',
             theme: theme,
             isMuted: true,
           ),
@@ -129,7 +180,7 @@ class CheckoutScreen extends StatelessWidget {
           const SizedBox(height: kSpace12),
           _TotalRow(
             label: 'Grand Total',
-            value: '฿0.00',
+            value: '฿${cart.grandTotal.toStringAsFixed(2)}',
             theme: theme,
             isBold: true,
           ),
