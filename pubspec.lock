@@ -400,6 +400,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.1"
+  qr:
+    dependency: transitive
+    description:
+      name: qr
+      sha256: "5a1d2586170e172b8a8c8470bbbffd5eb0cd38a66c0d77155ea138d3af3a4445"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.2"
+  qr_flutter:
+    dependency: "direct main"
+    description:
+      name: qr_flutter
+      sha256: "5095f0fc6e3f71d08adef8feccc8cea4f12eec18a2e31c2e8d82cb6019f4b097"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.0"
   record_use:
     dependency: transitive
     description:
@@ -461,6 +477,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.11"
+  thai_promptpay:
+    dependency: "direct main"
+    description:
+      name: thai_promptpay
+      sha256: d1e6c06d7891c0b7706e9c3e5bb98e6b8ce8fb12ab6c7d438c64e877555a3b62
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.0"
+  thainum:
+    dependency: transitive
+    description:
+      name: thainum
+      sha256: "75054d066567a45c5055e238f611d065eb4440718f9b6b5d411ad72edf98322f"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.3"
   typed_data:
     dependency: transitive
     description:

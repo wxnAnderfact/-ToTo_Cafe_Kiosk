@@ -38,6 +38,8 @@ dependencies:
   cloud_firestore: ^6.9.0
   google_fonts: ^8.2.1
   provider: ^6.1.5+1
+  qr_flutter: ^4.1.0
+  thai_promptpay: ^0.3.0
 
 dev_dependencies:
   flutter_test:

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
 import '../models/order.dart';
 import '../theme.dart';
+import 'qr_payment_screen.dart';
 
 /// หน้า 3: Checkout
 ///
@@ -18,7 +19,11 @@ class CheckoutScreen extends StatelessWidget {
   }
 
   void _onPayWithQR(BuildContext context) {
-    // TODO: Generate PromptPay QR, update order status to pending_payment
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const QrPaymentScreen(),
+      ),
+    );
   }
 
   void _onPayWithCash(BuildContext context) {
