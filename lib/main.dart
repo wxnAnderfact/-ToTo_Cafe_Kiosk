@@ -6,8 +6,7 @@ import 'firebase_options.dart';
 import 'theme.dart';
 import 'providers/cart_provider.dart';
 import 'services/menu_service.dart';
-import 'screens/standby_screen.dart';
-import 'screens/cashier_pos_screen.dart';
+import 'router.dart';
 
 void main() async {
   debugPrint('--- [DEBUG] main() started ---');
@@ -66,19 +65,11 @@ class TotoCafeApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CartProvider()),
         Provider.value(value: menuService),
       ],
-      child: MaterialApp(
+      child: MaterialApp.router(
         title: 'ToTo Cafe Kiosk',
         debugShowCheckedModeBanner: false,
         theme: totoCafeTheme,
-        // Use /cashier route for POS iPad, default is Kiosk standby
-        routes: {
-          '/': (_) {
-            debugPrint('--- [DEBUG] Building StandbyScreen (route /) ---');
-            return const StandbyScreen();
-          },
-          '/cashier': (_) => const CashierPosScreen(),
-          '/firebase-test': (_) => const FirebaseTestScreen(),
-        },
+        routerConfig: appRouter,
       ),
     );
   }

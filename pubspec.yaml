@@ -40,6 +40,7 @@ dependencies:
   provider: ^6.1.5+1
   qr_flutter: ^4.1.0
   thai_promptpay: ^0.3.0
+  go_router: ^18.0.1
 
 dev_dependencies:
   flutter_test:
