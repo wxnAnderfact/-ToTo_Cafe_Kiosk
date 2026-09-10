@@ -40,6 +40,21 @@ class OrderService {
         .map((snap) => snap.exists ? Order.fromSnapshot(snap) : null);
   }
 
+  /// Stream all orders with status == pendingPayment, ordered by createdAt ascending
+  Stream<List<Order>> watchPendingOrders() {
+    return _collection
+        .where('status', isEqualTo: OrderStatus.pendingPayment.value)
+        .orderBy('created_at', descending: false)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((doc) => Order.fromSnapshot(doc)).toList());
+  }
+
+  /// Update order status to paid
+  Future<void> approveOrder(String orderId) async {
+    await updateStatus(orderId, OrderStatus.paid);
+  }
+
   /// Get the next queue number by counting existing orders for today.
   ///
   /// A simple incrementing queue; for production you would use a

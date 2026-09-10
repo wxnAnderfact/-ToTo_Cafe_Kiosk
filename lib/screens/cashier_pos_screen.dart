@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../models/order.dart';
+import '../services/order_service.dart';
 import '../theme.dart';
 
 /// หน้า 4: Cashier POS
@@ -19,6 +21,8 @@ class CashierPosScreen extends StatefulWidget {
 }
 
 class _CashierPosScreenState extends State<CashierPosScreen> {
+  final _orderService = OrderService();
+
   // ── Build ───────────────────────────────────────────────────────────────
 
   @override
@@ -181,20 +185,79 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
           ),
 
           // Order list
-          // TODO: StreamBuilder with Firestore onSnapshot for real-time orders
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(kSpace16),
-              children: [
-                _OrderCard(
-                  queueNumber: '--',
-                  status: 'No pending orders',
-                  paymentMethod: '--',
-                  total: 0,
-                  onApprove: null,
-                  onReceipt: null,
-                ),
-              ],
+            child: StreamBuilder<List<Order>>(
+              stream: _orderService.watchPendingOrders(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Error: ${snapshot.error}',
+                        style: const TextStyle(color: Colors.red)),
+                  );
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final orders = snapshot.data ?? [];
+
+                if (orders.isEmpty) {
+                  return ListView(
+                    padding: const EdgeInsets.all(kSpace16),
+                    children: const [
+                      _OrderCard(
+                        queueNumber: '--',
+                        status: 'No pending orders',
+                        paymentMethod: '--',
+                        total: 0,
+                        onApprove: null,
+                        onReceipt: null,
+                      ),
+                    ],
+                  );
+                }
+
+                return ListView.separated(
+                  padding: const EdgeInsets.all(kSpace16),
+                  itemCount: orders.length,
+                  separatorBuilder: (context, _) => const SizedBox(height: kSpace12),
+                  itemBuilder: (context, index) {
+                    final order = orders[index];
+                    return _OrderCard(
+                      queueNumber: order.queueNumber.toString().padLeft(3, '0'),
+                      status: 'Pending ${order.paymentMethod == PaymentMethod.qr ? "QR Approval" : "Cash"}',
+                      paymentMethod: order.paymentMethod.value.toUpperCase(),
+                      total: order.total,
+                      onApprove: () async {
+                        try {
+                          await _orderService.approveOrder(order.id!);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Order #${order.queueNumber} approved!'),
+                                backgroundColor: kColorPrimary,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error approving order: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      onReceipt: () {
+                        // TODO: Implement receipt printing
+                      },
+                    );
+                  },
+                );
+              },
             ),
           ),
         ],
