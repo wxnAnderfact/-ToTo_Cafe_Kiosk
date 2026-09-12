@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
+import '../providers/locale_provider.dart';
 import '../models/order.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
 import '../utils/customization_rules.dart';
+import '../widgets/language_toggle.dart';
 import 'cash_waiting_screen.dart';
 import 'qr_payment_screen.dart';
 
@@ -66,6 +68,7 @@ class CheckoutScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
 
     return Scaffold(
       body: Column(
@@ -85,19 +88,22 @@ class CheckoutScreen extends StatelessWidget {
                 TextButton.icon(
                   onPressed: () => _onBackToMenu(context),
                   icon: const Icon(Icons.arrow_back),
-                  label: const Text('Back to Menu'),
+                  label: Text(locale.t('กลับไปเมนู', 'Back to Menu')),
                   style: TextButton.styleFrom(
                     foregroundColor: kColorTextBody,
                   ),
                 ),
                 const Spacer(),
                 Text(
-                  'Checkout',
+                  locale.t('ชำระเงิน', 'Checkout'),
                   style: theme.textTheme.headlineSmall,
                 ),
                 const Spacer(),
-                // Balance out the row
-                const SizedBox(width: 120),
+                Container(
+                  width: 140,
+                  alignment: Alignment.centerRight,
+                  child: const LanguageToggle(),
+                ),
               ],
             ),
           ),
@@ -111,7 +117,7 @@ class CheckoutScreen extends StatelessWidget {
                 // ═════════════════════════════════════════════════════════
                 Expanded(
                   flex: 3,
-                  child: _buildOrderSummary(context, theme),
+                  child: _buildOrderSummary(context, theme, locale),
                 ),
 
                 const VerticalDivider(width: 1),
@@ -121,7 +127,7 @@ class CheckoutScreen extends StatelessWidget {
                 // ═════════════════════════════════════════════════════════
                 Expanded(
                   flex: 2,
-                  child: _buildPaymentOptions(context, theme),
+                  child: _buildPaymentOptions(context, theme, locale),
                 ),
               ],
             ),
@@ -133,7 +139,7 @@ class CheckoutScreen extends StatelessWidget {
 
   // ── Left: Order Summary ─────────────────────────────────────────────────
 
-  Widget _buildOrderSummary(BuildContext context, ThemeData theme) {
+  Widget _buildOrderSummary(BuildContext context, ThemeData theme, LocaleProvider locale) {
     final cart = context.watch<CartProvider>();
 
     return Container(
@@ -142,14 +148,14 @@ class CheckoutScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Order Summary', style: theme.textTheme.headlineMedium),
+          Text(locale.t('สรุปออร์เดอร์', 'Order Summary'), style: theme.textTheme.headlineMedium),
           const SizedBox(height: kSpace24),
 
           Expanded(
             child: cart.isEmpty
                 ? Center(
                     child: Text(
-                      'No items yet',
+                      locale.t('ยังไม่มีรายการ', 'No items yet'),
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: kColorTextMuted),
                     ),
@@ -205,13 +211,13 @@ class CheckoutScreen extends StatelessWidget {
           const Divider(),
           const SizedBox(height: kSpace12),
           _TotalRow(
-            label: 'Subtotal',
+            label: locale.t('ราคาก่อนภาษี', 'Subtotal'),
             value: '฿${cart.subtotal.toStringAsFixed(2)}',
             theme: theme,
           ),
           const SizedBox(height: kSpace8),
           _TotalRow(
-            label: 'VAT 7%',
+            label: locale.t('VAT 7%', 'VAT 7%'),
             value: '฿${cart.vat.toStringAsFixed(2)}',
             theme: theme,
             isMuted: true,
@@ -220,7 +226,7 @@ class CheckoutScreen extends StatelessWidget {
           const Divider(),
           const SizedBox(height: kSpace12),
           _TotalRow(
-            label: 'Grand Total',
+            label: locale.t('ยอดสุทธิ', 'Grand Total'),
             value: '฿${cart.grandTotal.toStringAsFixed(2)}',
             theme: theme,
             isBold: true,
@@ -232,7 +238,7 @@ class CheckoutScreen extends StatelessWidget {
 
   // ── Right: Payment Options ──────────────────────────────────────────────
 
-  Widget _buildPaymentOptions(BuildContext context, ThemeData theme) {
+  Widget _buildPaymentOptions(BuildContext context, ThemeData theme, LocaleProvider locale) {
     return Container(
       color: kColorSurface,
       padding: const EdgeInsets.all(kSpace32),
@@ -240,7 +246,7 @@ class CheckoutScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            'Choose Payment Method',
+            locale.t('เลือกวิธีชำระเงิน', 'Choose Payment Method'),
             style: theme.textTheme.headlineSmall,
             textAlign: TextAlign.center,
           ),
@@ -253,7 +259,7 @@ class CheckoutScreen extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: () => _onPayWithQR(context),
               icon: const Icon(Icons.qr_code, size: 28),
-              label: const Text('Scan QR to Pay'),
+              label: Text(locale.t('สแกน QR จ่ายเงิน', 'Scan QR to Pay')),
             ),
           ),
           const SizedBox(height: kSpace16),
@@ -265,14 +271,14 @@ class CheckoutScreen extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: () => _onPayWithCash(context),
               icon: const Icon(Icons.payments_outlined, size: 28),
-              label: const Text('Pay with Cash at Counter'),
+              label: Text(locale.t('จ่ายเงินสดที่เคาน์เตอร์', 'Pay with Cash at Counter')),
             ),
           ),
 
           const SizedBox(height: kSpace32),
 
           Text(
-            'QR payment will be verified by our staff',
+            locale.t('QR จะถูกตรวจสอบโดยพนักงาน', 'QR payment will be verified by our staff'),
             style: theme.textTheme.bodySmall,
             textAlign: TextAlign.center,
           ),

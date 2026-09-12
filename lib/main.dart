@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 import 'theme.dart';
 import 'providers/cart_provider.dart';
+import 'providers/locale_provider.dart';
 import 'services/menu_service.dart';
 import 'router.dart';
 
@@ -71,6 +72,7 @@ class TotoCafeApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CartProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
         Provider.value(value: menuService),
       ],
       child: MaterialApp.router(

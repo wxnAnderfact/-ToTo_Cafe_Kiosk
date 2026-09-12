@@ -1,10 +1,13 @@
 // ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
+import 'dart:async';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:thai_promptpay/thai_promptpay.dart';
 import '../models/menu_item.dart';
 import '../models/order.dart';
+import '../providers/locale_provider.dart';
 import '../services/menu_service.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
@@ -12,6 +15,7 @@ import '../utils/customization_rules.dart';
 import '../utils/printer.dart';
 import '../utils/vat_calculator.dart';
 import '../widgets/item_customization_modal.dart';
+import '../widgets/language_toggle.dart';
 
 // ---------------------------------------------------------------------------
 // PromptPay ID — injected via --dart-define:
@@ -44,6 +48,40 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
   final _orderService = OrderService();
   final _menuService = MenuService();
   PosFilter _selectedFilter = PosFilter.all;
+  StreamSubscription<List<Order>>? _incomingSub;
+  int? _lastKnownCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _incomingSub = _orderService.watchPendingOrders().listen((orders) {
+      if (_lastKnownCount != null && orders.length > _lastKnownCount!) {
+        final newOrder = orders.last;
+        if (mounted) {
+          final locale = context.read<LocaleProvider>();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                locale.t(
+                  'มีออร์เดอร์ใหม่! คิวที่ ${newOrder.queueNumber}',
+                  'New order! Queue #${newOrder.queueNumber}',
+                ),
+              ),
+              backgroundColor: kColorSecondary,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+      _lastKnownCount = orders.length;
+    });
+  }
+
+  @override
+  void dispose() {
+    _incomingSub?.cancel();
+    super.dispose();
+  }
 
   Future<void> _showReceiptDialog(BuildContext context, Order order) async {
     await showDialog<void>(
@@ -64,9 +102,15 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
         onCashOrderCreated: (created) async {
           await _showReceiptDialog(context, created);
           if (context.mounted) {
+            final locale = context.read<LocaleProvider>();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('สร้างออร์เดอร์สำเร็จ คิวที่ ${created.queueNumber}'),
+                content: Text(
+                  locale.t(
+                    'สร้างออร์เดอร์สำเร็จ คิวที่ ${created.queueNumber}',
+                    'Order created! Queue #${created.queueNumber}',
+                  ),
+                ),
                 backgroundColor: kColorPrimary,
               ),
             );
@@ -83,6 +127,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
       backgroundColor: Colors.transparent,
       builder: (bottomSheetContext) {
         final theme = Theme.of(bottomSheetContext);
+        final locale = bottomSheetContext.watch<LocaleProvider>();
         final queueStr = order.queueNumber.toString().padLeft(3, '0');
 
         return Container(
@@ -115,7 +160,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   const SizedBox(height: 2),
                   Center(
                     child: Text(
-                      'RECEIPT / ใบเสร็จรับเงิน',
+                      locale.t('ใบเสร็จรับเงิน', 'RECEIPT'),
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: kColorTextMuted,
                         letterSpacing: 1.5,
@@ -129,7 +174,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('คิวที่ / Queue:', style: theme.textTheme.bodySmall),
+                      Text('${locale.t('คิวที่', 'Queue')}:', style: theme.textTheme.bodySmall),
                       Text(
                         '#$queueStr',
                         style: theme.textTheme.titleMedium?.copyWith(
@@ -143,7 +188,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('วันที่ / Date:', style: theme.textTheme.bodySmall),
+                      Text('${locale.t('วันที่', 'Date')}:', style: theme.textTheme.bodySmall),
                       Text(
                         order.createdAt != null
                             ? '${order.createdAt!.day.toString().padLeft(2, '0')}/${order.createdAt!.month.toString().padLeft(2, '0')}/${order.createdAt!.year} ${order.createdAt!.hour.toString().padLeft(2, '0')}:${order.createdAt!.minute.toString().padLeft(2, '0')}'
@@ -156,11 +201,11 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('วิธีชำระ / Payment:', style: theme.textTheme.bodySmall),
+                      Text(locale.t('ชำระด้วย:', 'Payment:'), style: theme.textTheme.bodySmall),
                       Text(
                         order.paymentMethod == PaymentMethod.qr
                             ? 'QR PromptPay'
-                            : 'เงินสด (Cash)',
+                            : locale.t('เงินสด', 'Cash'),
                         style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
                       ),
                     ],
@@ -233,8 +278,8 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('ราคาก่อนภาษี (Subtotal):',
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 13)),
+                      Text('${locale.t('ราคาก่อนภาษี', 'Subtotal')}:',
+                          style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
                       Text('฿${order.subtotal.toStringAsFixed(2)}',
                           style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
                     ],
@@ -243,7 +288,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('ภาษีมูลค่าเพิ่ม 7% (VAT):',
+                      const Text('VAT 7%:',
                           style: TextStyle(fontFamily: 'monospace', fontSize: 13)),
                       Text('฿${order.vat.toStringAsFixed(2)}',
                           style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
@@ -255,9 +300,9 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'ยอดสุทธิ (Total):',
-                        style: TextStyle(
+                      Text(
+                        '${locale.t('ยอดสุทธิ', 'Grand Total')}:',
+                        style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -276,7 +321,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   const SizedBox(height: kSpace16),
                   Center(
                     child: Text(
-                      'Thank you for your visit!',
+                      locale.t('ขอบคุณที่ใช้บริการ', 'Thank you for your visit'),
                       style: theme.textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
                     ),
                   ),
@@ -291,7 +336,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                             printReceipt();
                           },
                           icon: const Icon(Icons.print, size: 20),
-                          label: const Text('พิมพ์ใบเสร็จ'),
+                          label: Text(locale.t('🖨️ พิมพ์ใบเสร็จ', '🖨️ Print Receipt')),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: kColorPrimary,
                             foregroundColor: kColorWhite,
@@ -302,7 +347,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => Navigator.of(bottomSheetContext).pop(),
-                          child: const Text('ปิด'),
+                          child: Text(locale.t('ปิด', 'Close')),
                         ),
                       ),
                     ],
@@ -340,6 +385,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
       backgroundColor: Colors.transparent,
       builder: (bottomSheetContext) {
         final theme = Theme.of(bottomSheetContext);
+        final locale = bottomSheetContext.watch<LocaleProvider>();
 
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: kSpace24, vertical: kSpace16),
@@ -359,7 +405,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'QR PromptPay — คิวที่ $queueStr',
+                    '${locale.t('QR PromptPay — คิวที่', 'QR PromptPay — Queue')} $queueStr',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
@@ -381,7 +427,10 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   const SizedBox(height: kSpace8),
                   Center(
                     child: Text(
-                      'ให้ลูกค้าสแกน QR แล้วกด Approve เมื่อลูกค้าโอนแล้ว',
+                      locale.t(
+                        'ให้ลูกค้าสแกน QR แล้วกด Approve เมื่อลูกค้าโอนแล้ว',
+                        'Ask customer to scan QR, then tap Approve after transfer',
+                      ),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: kColorTextMuted,
@@ -410,10 +459,13 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                               width: 200,
                               height: 200,
                               alignment: Alignment.center,
-                              child: const Text(
-                                'ยังไม่ได้ตั้งค่า PROMPTPAY_ID\n(รันแอปด้วย --dart-define=PROMPTPAY_ID=...)',
+                              child: Text(
+                                locale.t(
+                                  'ยังไม่ได้ตั้งค่า PROMPTPAY_ID\n(รันแอปด้วย --dart-define=PROMPTPAY_ID=...)',
+                                  'PROMPTPAY_ID not configured\n(Run app with --dart-define=PROMPTPAY_ID=...)',
+                                ),
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.red, fontSize: 13),
+                                style: const TextStyle(color: Colors.red, fontSize: 13),
                               ),
                             ),
                     ),
@@ -434,9 +486,15 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                           await _showReceiptDialog(context, order);
                         }
                         if (context.mounted) {
+                          final loc = context.read<LocaleProvider>();
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('ชำระเงินสำเร็จ คิวที่ $queueStr'),
+                              content: Text(
+                                loc.t(
+                                  'ชำระเงินสำเร็จ คิวที่ $queueStr',
+                                  'Payment successful! Queue #$queueStr',
+                                ),
+                              ),
                               backgroundColor: kColorPrimary,
                             ),
                           );
@@ -446,7 +504,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                         backgroundColor: kColorPrimary,
                         foregroundColor: kColorWhite,
                       ),
-                      child: const Text('Approve — รับเงินแล้ว'),
+                      child: Text(locale.t('Approve — รับเงินแล้ว', 'Approve — Payment Received')),
                     ),
                   ),
                   const SizedBox(height: kSpace8),
@@ -462,7 +520,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                           Navigator.of(bottomSheetContext).pop();
                         }
                       },
-                      child: const Text('ยกเลิก'),
+                      child: Text(locale.t('ยกเลิก', 'Cancel')),
                     ),
                   ),
                 ],
@@ -479,6 +537,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
 
     return Scaffold(
       body: Row(
@@ -488,7 +547,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
           // ═════════════════════════════════════════════════════════════════
           Expanded(
             flex: 3,
-            child: _buildQuickMenuPanel(theme),
+            child: _buildQuickMenuPanel(theme, locale),
           ),
 
           const VerticalDivider(width: 1),
@@ -498,7 +557,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
           // ═════════════════════════════════════════════════════════════════
           Expanded(
             flex: 2,
-            child: _buildOrderManagementPanel(theme),
+            child: _buildOrderManagementPanel(theme, locale),
           ),
         ],
       ),
@@ -507,7 +566,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
 
   // ── Left: Quick Menu Panel ──────────────────────────────────────────────
 
-  Widget _buildQuickMenuPanel(ThemeData theme) {
+  Widget _buildQuickMenuPanel(ThemeData theme, LocaleProvider locale) {
     return Container(
       color: kColorBg,
       child: Column(
@@ -534,10 +593,12 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                     borderRadius: BorderRadius.circular(kRadiusPill),
                   ),
                   child: Text(
-                    '● On Shift',
+                    locale.t('● กำลังทำงาน', '● On Shift'),
                     style: theme.textTheme.bodySmall?.copyWith(color: kColorPrimary),
                   ),
                 ),
+                const SizedBox(width: kSpace12),
+                const LanguageToggle(),
               ],
             ),
           ),
@@ -551,7 +612,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
               kSpace16,
             ),
             child: Text(
-              'POPULAR ITEMS',
+              locale.t('เมนูยอดนิยม', 'POPULAR ITEMS'),
               style: theme.textTheme.labelMedium,
             ),
           ),
@@ -569,23 +630,25 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                 if (items.isEmpty) {
                   return Center(
                     child: Text(
-                      'No items available',
-                      style: theme.textTheme.bodyMedium?.copyWith(color: kColorTextMuted),
+                      locale.t('ไม่มีรายการเมนู', 'No menu items'),
+                      style: theme.textTheme.bodyMedium,
                     ),
                   );
                 }
 
+                final popularItems = items.take(8).toList();
+
                 return GridView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: kSpace24),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 160,
-                    mainAxisSpacing: kSpace12,
+                  padding: const EdgeInsets.all(kSpace16),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
                     crossAxisSpacing: kSpace12,
-                    childAspectRatio: 1.15,
+                    mainAxisSpacing: kSpace12,
+                    childAspectRatio: 1.1,
                   ),
-                  itemCount: items.length,
+                  itemCount: popularItems.length,
                   itemBuilder: (context, index) {
-                    final item = items[index];
+                    final item = popularItems[index];
                     return _QuickMenuItem(
                       name: item.name,
                       price: item.price,
@@ -607,7 +670,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
               child: ElevatedButton.icon(
                 onPressed: () => _openNewCounterOrder(context),
                 icon: const Icon(Icons.add_circle_outline),
-                label: const Text('New Counter Order'),
+                label: Text(locale.t('สั่งอาหารหน้าเคาน์เตอร์', 'New Counter Order')),
               ),
             ),
           ),
@@ -618,7 +681,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
 
   // ── Right: Order Management Panel ───────────────────────────────────────
 
-  Widget _buildOrderManagementPanel(ThemeData theme) {
+  Widget _buildOrderManagementPanel(ThemeData theme, LocaleProvider locale) {
     final PaymentMethod? methodFilter;
     if (_selectedFilter == PosFilter.cash) {
       methodFilter = PaymentMethod.cash;
@@ -643,15 +706,15 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    'Incoming Orders',
+                    locale.t('ออร์เดอร์ที่เข้ามา', 'Incoming Orders'),
                     style: theme.textTheme.headlineSmall,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                _buildFilterChip('All', PosFilter.all, theme),
+                _buildFilterChip(locale.t('ทั้งหมด', 'All'), PosFilter.all, theme),
                 const SizedBox(width: kSpace8),
-                _buildFilterChip('Cash', PosFilter.cash, theme),
+                _buildFilterChip(locale.t('เงินสด', 'Cash'), PosFilter.cash, theme),
                 const SizedBox(width: kSpace8),
                 _buildFilterChip('QR', PosFilter.qr, theme),
               ],
@@ -687,7 +750,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                               size: 48, color: kColorTextMuted.withValues(alpha: 0.5)),
                           const SizedBox(height: kSpace12),
                           Text(
-                            'No pending orders',
+                            locale.t('ไม่มีออร์เดอร์รอดำเนินการ', 'No pending orders'),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: kColorTextMuted,
                             ),
@@ -706,33 +769,15 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                     final order = orders[index];
                     return _OrderCard(
                       queueNumber: order.queueNumber.toString().padLeft(3, '0'),
-                      status:
-                          'Pending ${order.paymentMethod == PaymentMethod.qr ? "QR Approval" : "Cash"}',
+                      status: order.paymentMethod == PaymentMethod.qr
+                          ? locale.t('รอยืนยัน QR', 'Pending QR Approval')
+                          : locale.t('รอรับเงินสด', 'Pending Cash'),
                       paymentMethod: order.paymentMethod,
                       total: order.total,
                       onApprove: () async {
-                        try {
-                          await _orderService.approveOrder(order.id!);
-                          if (context.mounted) {
-                            await _showReceiptDialog(context, order);
-                          }
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Order #${order.queueNumber} approved!'),
-                                backgroundColor: kColorPrimary,
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error approving order: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
+                        await _orderService.approveOrder(order.id!);
+                        if (context.mounted) {
+                          await _showReceiptDialog(context, order);
                         }
                       },
                       onReceipt: () => _showReceiptBottomSheet(context, order),
@@ -854,6 +899,7 @@ class _OrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
     final isCash = paymentMethod == PaymentMethod.cash;
 
     return Card(
@@ -866,7 +912,7 @@ class _OrderCard extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  'Queue #$queueNumber',
+                  '${locale.t('คิวที่ ', 'Queue #')}$queueNumber',
                   style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const Spacer(),
@@ -913,7 +959,7 @@ class _OrderCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        isCash ? 'เงินสด' : 'QR PromptPay',
+                        isCash ? locale.t('เงินสด', 'Cash') : 'QR PromptPay',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: isCash ? kColorSecondary : kColorPrimary,
                           fontWeight: FontWeight.w700,
@@ -941,7 +987,7 @@ class _OrderCard extends StatelessWidget {
                   Expanded(
                     child: ElevatedButton(
                       onPressed: onApprove,
-                      child: const Text('Approve'),
+                      child: Text(locale.t('ยืนยัน', 'Approve')),
                     ),
                   ),
                 if (onApprove != null && onReceipt != null)
@@ -951,7 +997,7 @@ class _OrderCard extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: onReceipt,
                       icon: const Icon(Icons.receipt_long, size: 18),
-                      label: const Text('Receipt'),
+                      label: Text(locale.t('ใบเสร็จ', 'Receipt')),
                     ),
                   ),
               ],
@@ -1045,9 +1091,15 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
         if (widget.onCashOrderCreated != null) {
           widget.onCashOrderCreated!(created);
         } else {
+          final locale = context.read<LocaleProvider>();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('สร้างออร์เดอร์สำเร็จ คิวที่ $queueNumber'),
+              content: Text(
+                locale.t(
+                  'สร้างออร์เดอร์สำเร็จ คิวที่ $queueNumber',
+                  'Order created! Queue #$queueNumber',
+                ),
+              ),
               backgroundColor: kColorPrimary,
             ),
           );
@@ -1056,9 +1108,12 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmitting = false);
+        final locale = context.read<LocaleProvider>();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาดในการสร้างออร์เดอร์: $e'),
+            content: Text(
+              '${locale.t('เกิดข้อผิดพลาดในการสร้างออร์เดอร์', 'Error creating order')}: $e',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -1095,9 +1150,12 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmitting = false);
+        final locale = context.read<LocaleProvider>();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาดในการสร้างออร์เดอร์: $e'),
+            content: Text(
+              '${locale.t('เกิดข้อผิดพลาดในการสร้างออร์เดอร์', 'Error creating order')}: $e',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -1108,6 +1166,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -1128,7 +1187,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                     const Icon(Icons.point_of_sale, color: kColorPrimary),
                     const SizedBox(width: kSpace8),
                     Text(
-                      'New Counter Order (สั่งอาหารหน้าเคาน์เตอร์)',
+                      locale.t('สั่งอาหารหน้าเคาน์เตอร์', 'New Counter Order'),
                       style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                     ),
                     const Spacer(),
@@ -1160,7 +1219,10 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                             final items = snapshot.data ?? [];
                             if (items.isEmpty) {
                               return Center(
-                                child: Text('No menu items', style: theme.textTheme.bodyMedium),
+                                child: Text(
+                                  locale.t('ไม่มีรายการเมนู', 'No menu items'),
+                                  style: theme.textTheme.bodyMedium,
+                                ),
                               );
                             }
 
@@ -1259,14 +1321,14 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'รายการในออร์เดอร์ (${_posCart.length})',
+                                  '${locale.t('รายการในออร์เดอร์', 'Order Items')} (${_posCart.length})',
                                   style: theme.textTheme.titleMedium
                                       ?.copyWith(fontWeight: FontWeight.bold),
                                 ),
                                 if (_posCart.isNotEmpty)
                                   TextButton(
                                     onPressed: () => setState(() => _posCart.clear()),
-                                    child: const Text('ล้าง'),
+                                    child: Text(locale.t('ล้าง', 'Clear')),
                                   ),
                               ],
                             ),
@@ -1277,7 +1339,10 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                               child: _posCart.isEmpty
                                   ? Center(
                                       child: Text(
-                                        'แตะเมนูด้านซ้ายเพื่อเพิ่มรายการ',
+                                        locale.t(
+                                          'แตะเมนูด้านซ้ายเพื่อเพิ่มรายการ',
+                                          'Tap menu on the left to add items',
+                                        ),
                                         style: theme.textTheme.bodyMedium?.copyWith(
                                           color: kColorTextMuted,
                                         ),
@@ -1342,7 +1407,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Subtotal:', style: theme.textTheme.bodySmall),
+                                Text(locale.t('ราคาก่อนภาษี:', 'Subtotal:'), style: theme.textTheme.bodySmall),
                                 Text('฿${_subtotal.toStringAsFixed(2)}',
                                     style: theme.textTheme.bodySmall),
                               ],
@@ -1360,9 +1425,11 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Grand Total:',
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.bold)),
+                                Text(
+                                  locale.t('ยอดสุทธิ:', 'Grand Total:'),
+                                  style: theme.textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
                                 Text(
                                   '฿${_total.toStringAsFixed(2)}',
                                   style: theme.textTheme.titleMedium?.copyWith(
@@ -1397,8 +1464,8 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                                           : const Icon(Icons.payments_outlined),
                                       label: Text(
                                         _isSubmitting && _submittingMethod == 'cash'
-                                            ? 'กำลังบันทึก...'
-                                            : 'ชำระเงินสด (฿${_total.toStringAsFixed(2)})',
+                                            ? locale.t('กำลังบันทึก...', 'Saving...')
+                                            : '${locale.t('ชำระเงินสด', 'Pay with Cash')} (฿${_total.toStringAsFixed(2)})',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -1430,8 +1497,8 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                                           : const Icon(Icons.qr_code_2),
                                       label: Text(
                                         _isSubmitting && _submittingMethod == 'qr'
-                                            ? 'กำลังบันทึก...'
-                                            : 'จ่ายด้วย QR (฿${_total.toStringAsFixed(2)})',
+                                            ? locale.t('กำลังบันทึก...', 'Saving...')
+                                            : '${locale.t('จ่ายด้วย QR', 'Pay with QR')} (฿${_total.toStringAsFixed(2)})',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -1460,7 +1527,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Thermal Receipt Dialog after Payment Approval
+// Receipt Modal Dialog
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _ReceiptDialog extends StatelessWidget {
@@ -1471,11 +1538,12 @@ class _ReceiptDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
     final now = order.createdAt ?? DateTime.now();
     final dateStr =
         '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     final paymentMethodStr =
-        order.paymentMethod == PaymentMethod.qr ? 'QR PromptPay' : 'เงินสด';
+        order.paymentMethod == PaymentMethod.qr ? 'QR PromptPay' : locale.t('เงินสด', 'Cash');
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadiusCard)),
@@ -1494,7 +1562,7 @@ class _ReceiptDialog extends StatelessWidget {
                   const Icon(Icons.check_circle, color: kColorPrimary, size: 22),
                   const SizedBox(width: kSpace8),
                   Text(
-                    'ชำระเงินสำเร็จ ✓',
+                    locale.t('ชำระเงินสำเร็จ ✓', 'Payment Successful ✓'),
                     style: theme.textTheme.titleLarge?.copyWith(
                       color: kColorPrimary,
                       fontWeight: FontWeight.bold,
@@ -1547,7 +1615,7 @@ class _ReceiptDialog extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'คิวที่ ${order.queueNumber}',
+                          '${locale.t('คิวที่', 'Queue')} ${order.queueNumber}',
                           style: const TextStyle(
                             fontFamily: 'monospace',
                             fontWeight: FontWeight.bold,
@@ -1629,9 +1697,9 @@ class _ReceiptDialog extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Subtotal:',
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
+                        Text(
+                          '${locale.t('ราคาก่อนภาษี', 'Subtotal')}:',
+                          style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
                         ),
                         Text(
                           '฿${order.subtotal.toStringAsFixed(2)}',
@@ -1661,9 +1729,9 @@ class _ReceiptDialog extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'รวมทั้งหมด:',
-                          style: TextStyle(
+                        Text(
+                          '${locale.t('รวมทั้งหมด', 'Grand Total')}:',
+                          style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -1685,7 +1753,7 @@ class _ReceiptDialog extends StatelessWidget {
 
                     // Payment method: "ชำระด้วย: {QR PromptPay / เงินสด}"
                     Text(
-                      'ชำระด้วย: $paymentMethodStr',
+                      '${locale.t('ชำระด้วย:', 'Payment:')} $paymentMethodStr',
                       style: const TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 11,
@@ -1695,10 +1763,10 @@ class _ReceiptDialog extends StatelessWidget {
                     const SizedBox(height: 10),
 
                     // Centered: "ขอบคุณที่ใช้บริการ"
-                    const Center(
+                    Center(
                       child: Text(
-                        'ขอบคุณที่ใช้บริการ',
-                        style: TextStyle(
+                        locale.t('ขอบคุณที่ใช้บริการ', 'Thank you for your visit'),
+                        style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -1725,7 +1793,7 @@ class _ReceiptDialog extends StatelessWidget {
                     backgroundColor: kColorPrimary,
                     foregroundColor: kColorWhite,
                   ),
-                  child: const Text('🖨️ พิมพ์ใบเสร็จ'),
+                  child: Text(locale.t('🖨️ พิมพ์ใบเสร็จ', '🖨️ Print Receipt')),
                 ),
               ),
               const SizedBox(height: kSpace8),
@@ -1733,7 +1801,7 @@ class _ReceiptDialog extends StatelessWidget {
                 height: 44,
                 child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('ปิด (ไม่พิมพ์)'),
+                  child: Text(locale.t('ปิด (ไม่พิมพ์)', 'Close (No Print)')),
                 ),
               ),
             ],
@@ -1743,4 +1811,3 @@ class _ReceiptDialog extends StatelessWidget {
     );
   }
 }
-

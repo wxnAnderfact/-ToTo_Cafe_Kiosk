@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/locale_provider.dart';
 import '../theme.dart';
+import '../widgets/language_toggle.dart';
 import 'main_menu_screen.dart';
 
 /// หน้า 1: Standby (พักหน้าจอ)
@@ -25,6 +28,8 @@ class StandbyScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final locale = context.watch<LocaleProvider>();
+
     return Scaffold(
       body: GestureDetector(
         onTap: () => _onStartOrdering(context),
@@ -91,7 +96,9 @@ class StandbyScreen extends StatelessWidget {
                                 fontWeight: FontWeight.w600,
                               ),
                         ),
-                        child: const Text('Tap to start ordering'),
+                        child: Text(
+                          locale.t('แตะเพื่อเริ่มสั่ง', 'Tap to start ordering'),
+                        ),
                       ),
                     ),
                   ),
@@ -100,6 +107,15 @@ class StandbyScreen extends StatelessWidget {
 
                   const Spacer(),
                 ],
+              ),
+            ),
+
+            // ── Language Toggle (มุมขวาบน) ──────────────────────────────
+            const Positioned(
+              top: kSpace24,
+              right: kSpace24,
+              child: SafeArea(
+                child: LanguageToggle(),
               ),
             ),
 
@@ -144,7 +160,7 @@ class StandbyScreen extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'สมัครสมาชิก',
+                          locale.t('สมัครสมาชิก', 'Register Member'),
                           style: Theme.of(context)
                               .textTheme
                               .titleSmall
@@ -152,7 +168,7 @@ class StandbyScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: kSpace4),
                         Text(
-                          'สแกนเพื่อสะสมแต้ม',
+                          locale.t('สแกนเพื่อสะสมแต้ม', 'Scan to earn points'),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],

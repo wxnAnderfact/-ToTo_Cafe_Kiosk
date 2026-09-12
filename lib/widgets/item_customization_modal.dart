@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/locale_provider.dart';
 import '../theme.dart';
 import '../models/order.dart';
 import '../utils/customization_rules.dart';
@@ -87,6 +89,25 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
     _selectedMilk = options.first;
   }
 
+  String _getMilkLabel(LocaleProvider locale, String milk) {
+    switch (milk) {
+      case 'Regular':
+        return locale.t('นมสด', 'Regular Milk');
+      case 'นมโอ๊ต':
+        return locale.t('นมโอ๊ต', 'Oat Milk');
+      case 'นมอัลมอนด์':
+        return locale.t('นมอัลมอนด์', 'Almond Milk');
+      case 'นมข้นหวาน':
+        return locale.t('นมข้นหวาน', 'Condensed Milk');
+      case 'นมสด':
+        return locale.t('นมสด', 'Fresh Milk');
+      case 'นมข้นจืด':
+        return locale.t('นมข้นจืด', 'Evaporated Milk');
+      default:
+        return milk;
+    }
+  }
+
   void _onConfirm() {
     final showSweetness = CustomizationRules.showSweetness(widget.category, widget.name);
     final showMilk = CustomizationRules.showMilkTypeForItem(widget.name);
@@ -107,6 +128,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
     final showSweetness = CustomizationRules.showSweetness(widget.category, widget.name);
     final showMilk = CustomizationRules.showMilkTypeForItem(widget.name);
     final isBakeryOrNoOptions = !showSweetness && !showMilk;
@@ -153,7 +175,9 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                       children: [
                         // Eyebrow label
                         Text(
-                          isBakeryOrNoOptions ? 'SELECT ITEM' : 'CUSTOMIZE YOUR DRINK',
+                          isBakeryOrNoOptions
+                              ? locale.t('ปรับแต่งรายการ', 'CUSTOMIZE YOUR FOOD')
+                              : locale.t('ปรับแต่งเครื่องดื่ม', 'CUSTOMIZE YOUR DRINK'),
                           style: theme.textTheme.labelMedium,
                         ),
                         const SizedBox(height: kSpace8),
@@ -191,7 +215,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                                 const Icon(Icons.info_outline, size: 20, color: kColorTextMuted),
                                 const SizedBox(width: kSpace8),
                                 Text(
-                                  'ไม่มีตัวเลือกเพิ่มเติม',
+                                  locale.t('ไม่มีตัวเลือกเพิ่มเติม', 'No extra options'),
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: kColorTextMuted,
                                   ),
@@ -206,7 +230,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                         if (showSweetness) ...[
                           _buildOptionGroup(
                             theme: theme,
-                            label: 'SWEETNESS (ระดับความหวาน)',
+                            label: locale.t('ระดับความหวาน', 'SWEETNESS'),
                             child: Wrap(
                               spacing: kSpace8,
                               runSpacing: kSpace8,
@@ -229,14 +253,14 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                         if (showMilk) ...[
                           _buildOptionGroup(
                             theme: theme,
-                            label: 'MILK TYPE (ชนิดนม)',
+                            label: locale.t('ชนิดนม', 'MILK TYPE'),
                             child: Wrap(
                               spacing: kSpace8,
                               runSpacing: kSpace8,
                               children: ItemCustomizationModal.getMilkOptions(widget.name).map((milkOption) {
                                 final isSelected = _selectedMilk == milkOption;
                                 return _OptionChip(
-                                  label: milkOption,
+                                  label: _getMilkLabel(locale, milkOption),
                                   isSelected: isSelected,
                                   onTap: () {
                                     setState(() => _selectedMilk = milkOption);
@@ -251,7 +275,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                         // ── Quantity Selector ────────────────────────────
                         _buildOptionGroup(
                           theme: theme,
-                          label: 'QUANTITY (จำนวน)',
+                          label: locale.t('จำนวน', 'QUANTITY'),
                           child: Row(
                             children: [
                               IconButton(
@@ -289,7 +313,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                 ),
 
                 // ── Sticky footer CTA ───────────────────────────────────
-                _buildFooterButton(theme),
+                _buildFooterButton(theme, locale),
               ],
             ),
           ),
@@ -365,7 +389,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
 
   // ── Sticky footer button (primary pill, label left / price right) ──────
 
-  Widget _buildFooterButton(ThemeData theme) {
+  Widget _buildFooterButton(ThemeData theme, LocaleProvider locale) {
     final lineTotal = widget.price * _quantity;
 
     return Container(
@@ -386,7 +410,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('เพิ่มลงตะกร้า'),
+              Text(locale.t('เพิ่มลงตะกร้า', 'Add to Cart')),
               Text('฿${lineTotal.toStringAsFixed(0)}'),
             ],
           ),

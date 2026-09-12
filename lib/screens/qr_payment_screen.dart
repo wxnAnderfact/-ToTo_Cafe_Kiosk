@@ -6,9 +6,11 @@ import 'package:thai_promptpay/thai_promptpay.dart';
 
 import '../models/order.dart';
 import '../providers/cart_provider.dart';
+import '../providers/locale_provider.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
 import '../utils/customization_rules.dart';
+import '../widgets/language_toggle.dart';
 import 'standby_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +46,8 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   String? _qrPayload;
   String? _errorMsg;
   StreamSubscription<Order?>? _orderSub;
+  Timer? _countdownTimer;
+  int _countdown = 15;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -56,6 +60,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _orderSub?.cancel();
     super.dispose();
   }
@@ -64,11 +69,15 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   Future<void> _initOrder() async {
     final cart = context.read<CartProvider>();
+    final locale = context.read<LocaleProvider>();
 
     if (cart.isEmpty) {
       setState(() {
         _step = _PaymentStep.error;
-        _errorMsg = 'ตะกร้าสินค้าว่าง กรุณาเพิ่มสินค้าก่อนชำระเงิน';
+        _errorMsg = locale.t(
+          'ตะกร้าสินค้าว่าง กรุณาเพิ่มสินค้าก่อนชำระเงิน',
+          'Cart is empty. Please add items before checkout.',
+        );
       });
       return;
     }
@@ -76,8 +85,10 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     if (_kPromptPayId.isEmpty) {
       setState(() {
         _step = _PaymentStep.error;
-        _errorMsg =
-            'ยังไม่ได้ตั้งค่า PromptPay ID\nรันแอปด้วย --dart-define=PROMPTPAY_ID=<เบอร์>';
+        _errorMsg = locale.t(
+          'ยังไม่ได้ตั้งค่า PromptPay ID\nรันแอปด้วย --dart-define=PROMPTPAY_ID=<เบอร์>',
+          'PromptPay ID not configured\nRun app with --dart-define=PROMPTPAY_ID=<number>',
+        );
       });
       return;
     }
@@ -122,9 +133,10 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      final locale = context.read<LocaleProvider>();
       setState(() {
         _step = _PaymentStep.error;
-        _errorMsg = 'เกิดข้อผิดพลาด: $e';
+        _errorMsg = '${locale.t('เกิดข้อผิดพลาด', 'An error occurred')}: $e';
       });
     }
   }
@@ -132,7 +144,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   // ── Real-time order listener ──────────────────────────────────────────────
 
   void _onOrderUpdate(Order? updated) {
-    print('[Kiosk] _onOrderUpdate: ${updated?.status}');
+    debugPrint('[Kiosk] _onOrderUpdate: ${updated?.status}');
     if (updated == null || !mounted) return;
 
     if (updated.status == OrderStatus.paid ||
@@ -145,7 +157,22 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         _order = updated;
         _step = _PaymentStep.success;
       });
+      _startSuccessCountdown();
     }
+  }
+
+  void _startSuccessCountdown() {
+    _countdownTimer?.cancel();
+    _countdown = 15;
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_countdown > 1) {
+        setState(() => _countdown--);
+      } else {
+        timer.cancel();
+        _onDone();
+      }
+    });
   }
 
   // ── Customer confirms transfer ─────────────────────────────────────────────
@@ -162,8 +189,11 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final locale = context.read<LocaleProvider>();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ไม่สามารถอัปเดตสถานะได้: $e')),
+        SnackBar(
+          content: Text('${locale.t('ไม่สามารถอัปเดตสถานะได้', 'Could not update status')}: $e'),
+        ),
       );
       setState(() => _step = _PaymentStep.awaitingScan);
     }
@@ -172,6 +202,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   // ── Navigate back to standby after success ────────────────────────────────
 
   void _onDone() {
+    _countdownTimer?.cancel();
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(builder: (_) => const StandbyScreen()),
       (route) => false,
@@ -182,17 +213,29 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final locale = context.watch<LocaleProvider>();
+
     return Scaffold(
       backgroundColor: kColorBg,
       body: SafeArea(
-        child: switch (_step) {
-          _PaymentStep.generatingQr => _buildLoading('กำลังสร้าง QR Code...'),
-          _PaymentStep.awaitingScan => _buildQrView(),
-          _PaymentStep.awaitingApproval =>
-            _buildLoading('รอพนักงานยืนยันการชำระเงิน...'),
-          _PaymentStep.success => _buildSuccess(),
-          _PaymentStep.error => _buildError(),
-        },
+        child: Stack(
+          children: [
+            switch (_step) {
+              _PaymentStep.generatingQr =>
+                _buildLoading(locale.t('กำลังสร้าง QR Code...', 'Generating QR Code...')),
+              _PaymentStep.awaitingScan => _buildQrView(locale),
+              _PaymentStep.awaitingApproval =>
+                _buildLoading(locale.t('รอพนักงานยืนยันการชำระเงิน...', 'Waiting for staff approval...')),
+              _PaymentStep.success => _buildSuccess(locale),
+              _PaymentStep.error => _buildError(locale),
+            },
+            const Positioned(
+              top: kSpace16,
+              right: kSpace16,
+              child: LanguageToggle(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -214,7 +257,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   // ── QR code view ──────────────────────────────────────────────────────────
 
-  Widget _buildQrView() {
+  Widget _buildQrView(LocaleProvider locale) {
     final order = _order!;
     final theme = Theme.of(context);
 
@@ -230,12 +273,15 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'สแกน QR ชำระเงิน',
+                    locale.t('สแกน QR ชำระเงิน', 'Scan QR to Pay'),
                     style: theme.textTheme.headlineMedium,
                   ),
                   const SizedBox(height: kSpace8),
                   Text(
-                    'ใช้แอปธนาคารสแกน QR Code ด้านล่าง',
+                    locale.t(
+                      'ใช้แอปธนาคารสแกน QR Code ด้านล่าง',
+                      'Use your banking app to scan the QR Code below',
+                    ),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: kColorTextMuted,
                     ),
@@ -327,7 +373,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                     child: FilledButton.icon(
                       onPressed: _onCustomerConfirmed,
                       icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('โอนเงินเรียบร้อย'),
+                      label: Text(locale.t('โอนเงินเรียบร้อย', 'Transfer Complete')),
                       style: FilledButton.styleFrom(
                         backgroundColor: kColorPrimary,
                         shape: RoundedRectangleBorder(
@@ -357,10 +403,13 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('สรุปออร์เดอร์', style: theme.textTheme.headlineSmall),
+                Text(
+                  locale.t('สรุปออร์เดอร์', 'Order Summary'),
+                  style: theme.textTheme.headlineSmall,
+                ),
                 const SizedBox(height: kSpace4),
                 Text(
-                  'คิวที่ ${order.queueNumber}',
+                  '${locale.t('คิวที่', 'Queue')} ${order.queueNumber}',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: kColorPrimary,
                     fontWeight: FontWeight.w600,
@@ -424,7 +473,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 const Divider(),
                 const SizedBox(height: kSpace8),
                 _TotalRow(
-                  label: 'ราคาก่อนภาษี',
+                  label: locale.t('ราคาก่อนภาษี', 'Subtotal'),
                   value: '฿${order.subtotal.toStringAsFixed(2)}',
                 ),
                 const SizedBox(height: kSpace4),
@@ -437,7 +486,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 const Divider(),
                 const SizedBox(height: kSpace8),
                 _TotalRow(
-                  label: 'ยอดสุทธิ',
+                  label: locale.t('ยอดสุทธิ', 'Grand Total'),
                   value: '฿${order.total.toStringAsFixed(2)}',
                   bold: true,
                 ),
@@ -451,7 +500,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   // ── Success view ──────────────────────────────────────────────────────────
 
-  Widget _buildSuccess() {
+  Widget _buildSuccess(LocaleProvider locale) {
     final theme = Theme.of(context);
     final order = _order!;
 
@@ -476,10 +525,13 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               ),
             ),
             const SizedBox(height: kSpace24),
-            Text('ชำระเงินสำเร็จ! 🎉', style: theme.textTheme.headlineMedium),
+            Text(
+              locale.t('ชำระเงินสำเร็จ! 🎉', 'Payment Successful! 🎉'),
+              style: theme.textTheme.headlineMedium,
+            ),
             const SizedBox(height: kSpace8),
             Text(
-              'ขอบคุณที่ใช้บริการ ToTo Cafe',
+              locale.t('ขอบคุณที่ใช้บริการ ToTo Cafe', 'Thank you for visiting ToTo Cafe'),
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: kColorTextMuted,
               ),
@@ -500,7 +552,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               child: Column(
                 children: [
                   Text(
-                    'หมายเลขคิวของคุณ',
+                    locale.t('หมายเลขคิวของคุณ', 'Your Queue Number'),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: kColorTextMuted,
                     ),
@@ -515,7 +567,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                   ),
                   const SizedBox(height: kSpace4),
                   Text(
-                    'กรุณารอเรียกคิว',
+                    locale.t('กรุณารอเรียกคิว', 'Please wait for your queue'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: kColorTextMuted,
                     ),
@@ -524,7 +576,17 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               ),
             ),
 
-            const SizedBox(height: kSpace48),
+            const SizedBox(height: kSpace16),
+            Text(
+              locale.t(
+                'กลับหน้าหลักใน $_countdown วินาที...',
+                'Returning to home in $_countdown seconds...',
+              ),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: kColorTextMuted,
+              ),
+            ),
+            const SizedBox(height: kSpace32),
             SizedBox(
               width: 240,
               height: 52,
@@ -536,7 +598,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                     borderRadius: BorderRadius.circular(kRadiusPill),
                   ),
                 ),
-                child: const Text('กลับหน้าแรก'),
+                child: Text(locale.t('กลับหน้าแรก', 'Return to Home')),
               ),
             ),
           ],
@@ -547,7 +609,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   // ── Error view ────────────────────────────────────────────────────────────
 
-  Widget _buildError() {
+  Widget _buildError(LocaleProvider locale) {
     final theme = Theme.of(context);
 
     return Center(
@@ -562,10 +624,13 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
               color: Colors.redAccent,
             ),
             const SizedBox(height: kSpace16),
-            Text('เกิดข้อผิดพลาด', style: theme.textTheme.headlineSmall),
+            Text(
+              locale.t('เกิดข้อผิดพลาด', 'An error occurred'),
+              style: theme.textTheme.headlineSmall,
+            ),
             const SizedBox(height: kSpace8),
             Text(
-              _errorMsg ?? 'ไม่ทราบสาเหตุ',
+              _errorMsg ?? locale.t('ไม่ทราบสาเหตุ', 'Unknown error'),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: kColorTextMuted,
               ),
@@ -575,7 +640,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
             OutlinedButton.icon(
               onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.arrow_back),
-              label: const Text('กลับ'),
+              label: Text(locale.t('กลับ', 'Back')),
             ),
           ],
         ),

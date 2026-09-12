@@ -4,9 +4,11 @@ import '../theme.dart';
 import '../models/menu_item.dart' as model;
 import '../models/order.dart';
 import '../providers/cart_provider.dart';
+import '../providers/locale_provider.dart';
 import '../services/menu_service.dart';
 import '../utils/customization_rules.dart';
 import '../widgets/item_customization_modal.dart';
+import '../widgets/language_toggle.dart';
 import 'checkout_screen.dart';
 
 /// หน้า 2: Main Menu
@@ -37,9 +39,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   String get _selectedCategoryKey =>
       _categories[_selectedCategoryIndex].key;
 
-  String get _selectedCategoryLabel =>
-      _categories[_selectedCategoryIndex].label;
-
   Stream<List<model.MenuItem>>? _menuStream;
 
   @override
@@ -57,6 +56,21 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     _menuStream = context.read<MenuService>().watchByCategory(_selectedCategoryKey);
   }
 
+  String _getCategoryLabel(LocaleProvider locale, String key) {
+    switch (key) {
+      case 'hot_coffee':
+        return locale.t('กาแฟร้อน', 'Hot Coffee');
+      case 'cold_brew':
+        return locale.t('โคลด์บรู', 'Cold Brew');
+      case 'non_coffee':
+        return locale.t('ไม่มีกาแฟ', 'Non-Coffee');
+      case 'bakery':
+        return locale.t('เบเกอรี่', 'Bakery');
+      default:
+        return key;
+    }
+  }
+
   // ── Navigation ──────────────────────────────────────────────────────────
 
   void _onProceedToPayment() {
@@ -71,6 +85,8 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final locale = context.watch<LocaleProvider>();
+
     return Scaffold(
       body: Row(
         children: [
@@ -79,7 +95,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           // ═══════════════════════════════════════════════════════════════
           Expanded(
             flex: 2,
-            child: _buildCategoryNav(),
+            child: _buildCategoryNav(locale),
           ),
 
           // Vertical divider
@@ -90,7 +106,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           // ═══════════════════════════════════════════════════════════════
           Expanded(
             flex: 5,
-            child: _buildProductGrid(),
+            child: _buildProductGrid(locale),
           ),
 
           // Vertical divider
@@ -101,7 +117,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
           // ═══════════════════════════════════════════════════════════════
           Expanded(
             flex: 3,
-            child: _buildCartPanel(),
+            child: _buildCartPanel(locale),
           ),
         ],
       ),
@@ -110,7 +126,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   // ── Left: Category Nav ──────────────────────────────────────────────────
 
-  Widget _buildCategoryNav() {
+  Widget _buildCategoryNav(LocaleProvider locale) {
     return Container(
       color: kColorSurface,
       child: Column(
@@ -140,7 +156,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
               itemBuilder: (context, index) {
                 final isSelected = index == _selectedCategoryIndex;
                 return _CategoryItem(
-                  label: _categories[index].label,
+                  label: _getCategoryLabel(locale, _categories[index].key),
                   isSelected: isSelected,
                   onTap: () {
                     setState(() {
@@ -159,7 +175,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   // ── Center: Product Grid (Firestore-backed) ─────────────────────────────
 
-  Widget _buildProductGrid() {
+  Widget _buildProductGrid(LocaleProvider locale) {
 
     return Container(
       color: kColorBg,
@@ -175,7 +191,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
               kSpace16,
             ),
             child: Text(
-              _selectedCategoryLabel,
+              _getCategoryLabel(locale, _selectedCategoryKey),
               style: Theme.of(context).textTheme.headlineLarge,
             ),
           ),
@@ -224,7 +240,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                             ),
                             const SizedBox(height: kSpace12),
                             Text(
-                              'Failed to load menu',
+                              locale.t('โหลดเมนูไม่สำเร็จ', 'Failed to load menu'),
                               style: Theme.of(context)
                                   .textTheme
                                   .titleMedium
@@ -258,7 +274,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         ),
                         const SizedBox(height: kSpace12),
                         Text(
-                          'No items in this category',
+                          locale.t('ไม่มีสินค้าในหมวดหมู่นี้', 'No items in this category'),
                           style: Theme.of(context)
                               .textTheme
                               .bodyMedium
@@ -318,7 +334,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   // ── Right: Cart Panel ───────────────────────────────────────────────────
 
-  Widget _buildCartPanel() {
+  Widget _buildCartPanel(LocaleProvider locale) {
     return Consumer<CartProvider>(
       builder: (context, cart, _) {
         final theme = Theme.of(context);
@@ -334,7 +350,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Your Order',
+                        locale.t('ตะกร้า', 'Cart'),
                         style: theme.textTheme.headlineSmall,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -352,10 +368,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         borderRadius: BorderRadius.circular(kRadiusPill),
                       ),
                       child: Text(
-                        '${cart.totalQuantity} items',
+                        '${cart.totalQuantity} ${locale.t("ชิ้น", "items")}',
                         style: theme.textTheme.bodySmall,
                       ),
                     ),
+                    const SizedBox(width: kSpace8),
+                    const LanguageToggle(),
                   ],
                 ),
               ),
@@ -376,7 +394,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                             ),
                             const SizedBox(height: kSpace12),
                             Text(
-                              'Your cart is empty',
+                              locale.t('ตะกร้าว่าง', 'Cart is empty'),
                               style: theme.textTheme.bodyMedium
                                   ?.copyWith(color: kColorTextMuted),
                             ),
@@ -413,7 +431,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Subtotal',
+                          locale.t('ราคาก่อนภาษี', 'Subtotal'),
                           style: theme.textTheme.bodyMedium,
                         ),
                         Text(
@@ -429,7 +447,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'VAT 7%',
+                          locale.t('VAT 7%', 'VAT 7%'),
                           style: theme.textTheme.bodySmall,
                         ),
                         Text(
@@ -444,7 +462,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Total',
+                          locale.t('ยอดรวม', 'Total'),
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
@@ -463,7 +481,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       child: FilledButton(
                         onPressed:
                             cart.isNotEmpty ? _onProceedToPayment : null,
-                        child: const Text('Proceed to Payment'),
+                        child: Text(locale.t('ดำเนินการชำระเงิน', 'Proceed to Payment')),
                       ),
                     ),
                   ],
@@ -564,6 +582,8 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final locale = context.watch<LocaleProvider>();
+
     return Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -633,7 +653,7 @@ class _ProductCard extends StatelessWidget {
                                 .labelSmall
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
-                          child: const Text('Add'),
+                          child: Text(locale.t('เพิ่ม', 'Add')),
                         ),
                       ),
                     ],
