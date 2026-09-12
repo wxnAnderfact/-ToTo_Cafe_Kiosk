@@ -43,15 +43,24 @@ class OrderService {
   /// Stream all orders with status == pendingPayment, ordered by createdAt ascending
   Stream<List<Order>> watchPendingOrders() {
     return _collection
-        .where('status', isEqualTo: OrderStatus.pendingPayment.value)
-        .orderBy('created_at', descending: false)
+        .where('status', isEqualTo: 'pending_payment')
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => Order.fromSnapshot(doc)).toList());
+        .map((snap) {
+      final orders =
+          snap.docs.map((doc) => Order.fromSnapshot(doc)).toList();
+      orders.sort((a, b) {
+        final aCreated = a.createdAt ?? DateTime.now();
+        final bCreated = b.createdAt ?? DateTime.now();
+        return aCreated.compareTo(bCreated);
+      });
+      print('[POS] watchPendingOrders snapshot: ${orders.length} orders');
+      return orders;
+    });
   }
 
   /// Update order status to paid
   Future<void> approveOrder(String orderId) async {
+    print('[POS] approveOrder called for $orderId');
     await updateStatus(orderId, OrderStatus.paid);
   }
 

@@ -167,8 +167,14 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
             ),
             child: Row(
               children: [
-                Text('Incoming Orders', style: theme.textTheme.headlineSmall),
-                const Spacer(),
+                Expanded(
+                  child: Text(
+                    'Incoming Orders',
+                    style: theme.textTheme.headlineSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 // Filter chips placeholder
                 Chip(
                   label: const Text('All'),

@@ -131,6 +131,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   // ── Real-time order listener ──────────────────────────────────────────────
 
   void _onOrderUpdate(Order? updated) {
+    print('[Kiosk] _onOrderUpdate: ${updated?.status}');
     if (updated == null || !mounted) return;
 
     if (updated.status == OrderStatus.paid ||
