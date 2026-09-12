@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
 import '../models/order.dart';
+import '../services/order_service.dart';
 import '../theme.dart';
+import 'cash_waiting_screen.dart';
 import 'qr_payment_screen.dart';
 
 /// หน้า 3: Checkout
@@ -26,8 +28,38 @@ class CheckoutScreen extends StatelessWidget {
     );
   }
 
-  void _onPayWithCash(BuildContext context) {
-    // TODO: Print queue number, set payment_method = cash, notify POS
+  Future<void> _onPayWithCash(BuildContext context) async {
+    final cart = context.read<CartProvider>();
+    if (cart.isEmpty) return;
+
+    try {
+      final orderService = OrderService();
+      final queueNumber = await orderService.nextQueueNumber();
+      final breakdown = cart.priceBreakdown;
+      final order = Order(
+        items: List.from(cart.items),
+        status: OrderStatus.awaitingApproval,
+        paymentMethod: PaymentMethod.cash,
+        queueNumber: queueNumber,
+        subtotal: breakdown.subtotal,
+        vat: breakdown.vat,
+        total: breakdown.grandTotal,
+      );
+
+      final created = await orderService.createOrder(order);
+
+      if (!context.mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CashWaitingScreen(order: created),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+      );
+    }
   }
 
   @override

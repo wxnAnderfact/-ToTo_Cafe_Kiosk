@@ -40,14 +40,18 @@ class OrderService {
         .map((snap) => snap.exists ? Order.fromSnapshot(snap) : null);
   }
 
-  /// Stream all orders with status == pendingPayment, ordered by createdAt ascending
-  Stream<List<Order>> watchPendingOrders() {
+  /// Stream all orders with status == awaitingApproval, ordered by createdAt ascending.
+  /// Optionally filters by [paymentMethod] (e.g. Cash or QR).
+  Stream<List<Order>> watchPendingOrders({PaymentMethod? paymentMethod}) {
     return _collection
-        .where('status', isEqualTo: 'pending_payment')
+        .where('status', isEqualTo: OrderStatus.awaitingApproval.value)
         .snapshots()
         .map((snap) {
-      final orders =
+      var orders =
           snap.docs.map((doc) => Order.fromSnapshot(doc)).toList();
+      if (paymentMethod != null) {
+        orders = orders.where((o) => o.paymentMethod == paymentMethod).toList();
+      }
       orders.sort((a, b) {
         final aCreated = a.createdAt ?? DateTime.now();
         final bCreated = b.createdAt ?? DateTime.now();

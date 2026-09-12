@@ -154,10 +154,10 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     setState(() => _step = _PaymentStep.awaitingApproval);
 
     try {
-      // Mark order as pending_confirmation (visible to cashier on POS)
+      // Mark order as awaiting_approval (visible to cashier on POS)
       await _orderService.updateStatus(
         _order!.id!,
-        OrderStatus.pendingPayment, // keeps existing status; POS approves
+        OrderStatus.awaitingApproval,
       );
     } catch (e) {
       if (!mounted) return;

@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// ```
 enum OrderStatus {
   pendingPayment('pending_payment'),
+  awaitingApproval('awaiting_approval'),
   paid('paid'),
   preparing('preparing'),
   ready('ready'),

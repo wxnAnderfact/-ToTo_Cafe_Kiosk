@@ -5,6 +5,7 @@ void main() {
   group('OrderStatus Enum and Serialization Mapping', () {
     test('OrderStatus values map to correct Firestore strings', () {
       expect(OrderStatus.pendingPayment.value, 'pending_payment');
+      expect(OrderStatus.awaitingApproval.value, 'awaiting_approval');
       expect(OrderStatus.paid.value, 'paid');
       expect(OrderStatus.preparing.value, 'preparing');
       expect(OrderStatus.ready.value, 'ready');
@@ -13,6 +14,7 @@ void main() {
 
     test('OrderStatus.fromString parses Firestore strings correctly', () {
       expect(OrderStatus.fromString('pending_payment'), OrderStatus.pendingPayment);
+      expect(OrderStatus.fromString('awaiting_approval'), OrderStatus.awaitingApproval);
       expect(OrderStatus.fromString('paid'), OrderStatus.paid);
       expect(OrderStatus.fromString('preparing'), OrderStatus.preparing);
       expect(OrderStatus.fromString('ready'), OrderStatus.ready);
