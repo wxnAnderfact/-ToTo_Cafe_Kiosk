@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:flutter/foundation.dart';
 import '../models/order.dart';
 
 /// Service for creating and updating orders in the `orders` Firestore
@@ -57,15 +58,21 @@ class OrderService {
         final bCreated = b.createdAt ?? DateTime.now();
         return aCreated.compareTo(bCreated);
       });
-      print('[POS] watchPendingOrders snapshot: ${orders.length} orders');
+      debugPrint('[POS] watchPendingOrders snapshot: ${orders.length} orders');
       return orders;
     });
   }
 
   /// Update order status to paid
   Future<void> approveOrder(String orderId) async {
-    print('[POS] approveOrder called for $orderId');
+    debugPrint('[POS] approveOrder called for $orderId');
     await updateStatus(orderId, OrderStatus.paid);
+  }
+
+  /// Delete an order document from Firestore (e.g. canceled counter QR order).
+  Future<void> deleteOrder(String orderId) async {
+    debugPrint('[POS] deleteOrder called for $orderId');
+    await _collection.doc(orderId).delete();
   }
 
   /// Get the next queue number by counting existing orders for today.

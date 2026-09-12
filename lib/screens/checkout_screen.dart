@@ -4,6 +4,7 @@ import '../providers/cart_provider.dart';
 import '../models/order.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
+import '../utils/customization_rules.dart';
 import 'cash_waiting_screen.dart';
 import 'qr_payment_screen.dart';
 
@@ -169,16 +170,19 @@ class CheckoutScreen extends StatelessWidget {
                                   item.name,
                                   style: theme.textTheme.titleSmall,
                                 ),
-                                if (item.sweetness != SweetnessLevel.hundred ||
-                                    item.milkType != MilkType.regular)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.only(top: kSpace4),
-                                    child: Text(
-                                      'Sweetness: ${item.sweetness.label} • Milk: ${item.milkType.label}',
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  ),
+                                Builder(
+                                  builder: (context) {
+                                    final modSummary = CustomizationRules.getModifierSummary(item);
+                                    if (modSummary == null) return const SizedBox.shrink();
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: kSpace4),
+                                      child: Text(
+                                        modSummary,
+                                        style: theme.textTheme.bodySmall,
+                                      ),
+                                    );
+                                  },
+                                ),
                               ],
                             ),
                           ),

@@ -29,6 +29,14 @@ void main() async {
       debugPrint('--- [DEBUG] menuService.seedIfEmpty() failed: $e ---');
     });
 
+    try {
+      menuService.updateMenuImages().catchError((e) {
+        debugPrint('--- [DEBUG] menuService.updateMenuImages() failed: $e ---');
+      });
+    } catch (e) {
+      debugPrint('--- [DEBUG] menuService.updateMenuImages() error: $e ---');
+    }
+
     debugPrint('--- [DEBUG] Calling runApp(TotoCafeApp) ---');
     runApp(TotoCafeApp(menuService: menuService));
   } catch (e) {

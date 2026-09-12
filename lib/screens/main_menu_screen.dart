@@ -5,6 +5,7 @@ import '../models/menu_item.dart' as model;
 import '../models/order.dart';
 import '../providers/cart_provider.dart';
 import '../services/menu_service.dart';
+import '../utils/customization_rules.dart';
 import '../widgets/item_customization_modal.dart';
 import 'checkout_screen.dart';
 
@@ -578,6 +579,9 @@ class _ProductCard extends StatelessWidget {
                 imagePath,
                 width: double.infinity,
                 fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => const Center(
+                  child: Icon(Icons.coffee, color: kCoffee500, size: 40),
+                ),
               ),
             ),
           ),
@@ -683,18 +687,16 @@ class _CartLineItem extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: kSpace4),
-                // Modifiers
-                if (item.sweetness != SweetnessLevel.hundred ||
-                    item.milkType != MilkType.regular)
-                  Text(
-                    [
-                      if (item.sweetness != SweetnessLevel.hundred)
-                        'Sweet ${item.sweetness.label}',
-                      if (item.milkType != MilkType.regular)
-                        item.milkType.label,
-                    ].join(' · '),
-                    style: theme.textTheme.bodySmall,
-                  ),
+                Builder(
+                  builder: (context) {
+                    final modSummary = CustomizationRules.getModifierSummary(item);
+                    if (modSummary == null) return const SizedBox.shrink();
+                    return Text(
+                      modSummary,
+                      style: theme.textTheme.bodySmall,
+                    );
+                  },
+                ),
                 const SizedBox(height: kSpace8),
                 Text(
                   '฿${item.lineTotal.toStringAsFixed(2)}',

@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:thai_promptpay/thai_promptpay.dart';
 import '../models/menu_item.dart';
 import '../models/order.dart';
 import '../services/menu_service.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
+import '../utils/customization_rules.dart';
 import '../utils/printer.dart';
 import '../utils/vat_calculator.dart';
 import '../widgets/item_customization_modal.dart';
+
+// ---------------------------------------------------------------------------
+// PromptPay ID — injected via --dart-define:
+//   flutter run --dart-define=PROMPTPAY_ID=0812345678
+// ---------------------------------------------------------------------------
+const String _kPromptPayId =
+    String.fromEnvironment('PROMPTPAY_ID', defaultValue: '');
 
 enum PosFilter { all, cash, qr }
 
@@ -37,7 +47,11 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
     showDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (_) => const _CounterOrderDialog(),
+      builder: (_) => _CounterOrderDialog(
+        onQrOrderCreated: (created) {
+          _showCounterQrBottomSheet(context, created);
+        },
+      ),
     );
   }
 
@@ -166,19 +180,23 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                                     ),
                                   ],
                                 ),
-                                if (item.sweetness != SweetnessLevel.hundred ||
-                                    item.milkType != MilkType.regular)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 8.0, top: 2),
-                                    child: Text(
-                                      '(${item.sweetness.label}, ${item.milkType.label})',
-                                      style: const TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontSize: 12,
-                                        color: kColorTextMuted,
+                                Builder(
+                                  builder: (context) {
+                                    final modSummary = CustomizationRules.getModifierSummary(item, includeLabels: false);
+                                    if (modSummary == null) return const SizedBox.shrink();
+                                    return Padding(
+                                      padding: const EdgeInsets.only(left: 8.0, top: 2),
+                                      child: Text(
+                                        '($modSummary)',
+                                        style: const TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontSize: 12,
+                                          color: kColorTextMuted,
+                                        ),
                                       ),
-                                    ),
-                                  ),
+                                    );
+                                  },
+                                ),
                               ],
                             ),
                           );
@@ -267,6 +285,161 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCounterQrBottomSheet(BuildContext context, Order order) {
+    final grandTotalStr = order.total.toStringAsFixed(2);
+    final queueStr = order.queueNumber.toString();
+
+    final amountSatang = (order.total * 100).round();
+    final String payload;
+    if (_kPromptPayId.isNotEmpty) {
+      if (_kPromptPayId.length == 13) {
+        payload = promptPayNationalId(_kPromptPayId, amountSatang: amountSatang);
+      } else {
+        payload = promptPayMobile(_kPromptPayId, amountSatang: amountSatang);
+      }
+    } else {
+      payload = '';
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (bottomSheetContext) {
+        final theme = Theme.of(bottomSheetContext);
+
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: kSpace24, vertical: kSpace16),
+          decoration: BoxDecoration(
+            color: kColorSurface,
+            borderRadius: BorderRadius.circular(kRadiusCard),
+            boxShadow: const [
+              BoxShadow(color: Colors.black26, blurRadius: 20, offset: Offset(0, 4)),
+            ],
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: const EdgeInsets.all(kSpace24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'QR PromptPay — คิวที่ $queueStr',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: kColorPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: kSpace12),
+                  const Divider(thickness: 1),
+                  const SizedBox(height: kSpace12),
+                  Center(
+                    child: Text(
+                      '฿$grandTotalStr',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: kColorSecondary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: kSpace8),
+                  Center(
+                    child: Text(
+                      'ให้ลูกค้าสแกน QR แล้วกด Approve เมื่อลูกค้าโอนแล้ว',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: kColorTextMuted,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: kSpace16),
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(kSpace12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(kRadiusCard),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 2)),
+                        ],
+                      ),
+                      child: payload.isNotEmpty
+                          ? QrImageView(
+                              data: payload,
+                              version: QrVersions.auto,
+                              size: 200,
+                              backgroundColor: Colors.white,
+                            )
+                          : Container(
+                              width: 200,
+                              height: 200,
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'ยังไม่ได้ตั้งค่า PROMPTPAY_ID\n(รันแอปด้วย --dart-define=PROMPTPAY_ID=...)',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.red, fontSize: 13),
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: kSpace24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (order.id != null) {
+                          await _orderService.approveOrder(order.id!);
+                        }
+                        if (bottomSheetContext.mounted) {
+                          Navigator.of(bottomSheetContext).pop();
+                        }
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('ชำระเงินสำเร็จ คิวที่ $queueStr'),
+                              backgroundColor: kColorPrimary,
+                            ),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kColorPrimary,
+                        foregroundColor: kColorWhite,
+                      ),
+                      child: const Text('Approve — รับเงินแล้ว'),
+                    ),
+                  ),
+                  const SizedBox(height: kSpace8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        if (order.id != null) {
+                          await _orderService.deleteOrder(order.id!);
+                        }
+                        if (bottomSheetContext.mounted) {
+                          Navigator.of(bottomSheetContext).pop();
+                        }
+                      },
+                      child: const Text('ยกเลิก'),
+                    ),
                   ),
                 ],
               ),
@@ -392,6 +565,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                     return _QuickMenuItem(
                       name: item.name,
                       price: item.price,
+                      imageUrl: item.imageUrl,
                       onTap: () => _openNewCounterOrder(context),
                     );
                   },
@@ -577,11 +751,13 @@ class _QuickMenuItem extends StatelessWidget {
   const _QuickMenuItem({
     required this.name,
     required this.price,
+    this.imageUrl,
     required this.onTap,
   });
 
   final String name;
   final double price;
+  final String? imageUrl;
   final VoidCallback onTap;
 
   @override
@@ -595,7 +771,19 @@ class _QuickMenuItem extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.coffee, color: kCoffee500, size: 28),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(kRadiusBadge),
+                child: (imageUrl != null && imageUrl!.isNotEmpty)
+                    ? Image.asset(
+                        imageUrl!,
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.coffee, color: kCoffee500, size: 40),
+                      )
+                    : const Icon(Icons.coffee, color: kCoffee500, size: 40),
+              ),
               const SizedBox(height: kSpace8),
               Text(
                 name,
@@ -753,7 +941,9 @@ class _OrderCard extends StatelessWidget {
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _CounterOrderDialog extends StatefulWidget {
-  const _CounterOrderDialog();
+  const _CounterOrderDialog({this.onQrOrderCreated});
+
+  final ValueChanged<Order>? onQrOrderCreated;
 
   @override
   State<_CounterOrderDialog> createState() => _CounterOrderDialogState();
@@ -764,6 +954,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
   final _orderService = OrderService();
   final List<OrderItem> _posCart = [];
   bool _isSubmitting = false;
+  String? _submittingMethod;
 
   double get _subtotal => _posCart.fold<double>(0, (sum, i) => sum + i.lineTotal);
   double get _vat => calculateVat(_subtotal);
@@ -799,7 +990,10 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
   Future<void> _submitCashOrder() async {
     if (_posCart.isEmpty || _isSubmitting) return;
 
-    setState(() => _isSubmitting = true);
+    setState(() {
+      _isSubmitting = true;
+      _submittingMethod = 'cash';
+    });
 
     try {
       final queueNumber = await _orderService.nextQueueNumber();
@@ -823,6 +1017,45 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
             backgroundColor: kColorPrimary,
           ),
         );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการสร้างออร์เดอร์: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _submitQrOrder() async {
+    if (_posCart.isEmpty || _isSubmitting) return;
+
+    setState(() {
+      _isSubmitting = true;
+      _submittingMethod = 'qr';
+    });
+
+    try {
+      final queueNumber = await _orderService.nextQueueNumber();
+      final order = Order(
+        items: List.from(_posCart),
+        status: OrderStatus.awaitingApproval, // Counter QR orders await cashier approval
+        paymentMethod: PaymentMethod.qr,
+        queueNumber: queueNumber,
+        subtotal: _subtotal,
+        vat: _vat,
+        total: _total,
+      );
+
+      final created = await _orderService.createOrder(order);
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onQrOrderCreated?.call(created);
       }
     } catch (e) {
       if (mounted) {
@@ -935,13 +1168,17 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                                                 color: kTan.withValues(alpha: 0.3),
                                                 borderRadius: BorderRadius.circular(kRadiusBadge),
                                               ),
-                                              child: Center(
-                                                child: Icon(
-                                                  Icons.coffee,
-                                                  size: 36,
-                                                  color: kCoffee500,
-                                                ),
-                                              ),
+                                              clipBehavior: Clip.antiAlias,
+                                              child: (item.imageUrl != null && item.imageUrl!.isNotEmpty)
+                                                  ? Image.asset(
+                                                      item.imageUrl!,
+                                                      fit: BoxFit.cover,
+                                                      width: double.infinity,
+                                                      height: double.infinity,
+                                                      errorBuilder: (context, error, stackTrace) =>
+                                                          const Icon(Icons.coffee, color: kCoffee500, size: 40),
+                                                    )
+                                                  : const Icon(Icons.coffee, size: 40, color: kCoffee500),
                                             ),
                                           ),
                                           const SizedBox(height: kSpace8),
@@ -1102,34 +1339,75 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                             ),
                             const SizedBox(height: kSpace16),
 
-                            // Pay with Cash CTA
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: ElevatedButton.icon(
-                                onPressed: _posCart.isEmpty || _isSubmitting
-                                    ? null
-                                    : _submitCashOrder,
-                                icon: _isSubmitting
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.payments_outlined),
-                                label: Text(
-                                  _isSubmitting
-                                      ? 'กำลังบันทึก...'
-                                      : 'ชำระเงินสด (฿${_total.toStringAsFixed(2)})',
+                            // Pay with Cash or QR PromptPay
+                            Row(
+                              children: [
+                                // Button 1 — Cash
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: ElevatedButton.icon(
+                                      onPressed: _posCart.isEmpty || _isSubmitting
+                                          ? null
+                                          : _submitCashOrder,
+                                      icon: _isSubmitting && _submittingMethod == 'cash'
+                                          ? const SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Icon(Icons.payments_outlined),
+                                      label: Text(
+                                        _isSubmitting && _submittingMethod == 'cash'
+                                            ? 'กำลังบันทึก...'
+                                            : 'ชำระเงินสด (฿${_total.toStringAsFixed(2)})',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: kColorSecondary,
+                                        foregroundColor: kColorWhite,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: kColorSecondary,
-                                  foregroundColor: kColorWhite,
+                                const SizedBox(width: kSpace12),
+                                // Button 2 — QR PromptPay
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: ElevatedButton.icon(
+                                      onPressed: _posCart.isEmpty || _isSubmitting
+                                          ? null
+                                          : _submitQrOrder,
+                                      icon: _isSubmitting && _submittingMethod == 'qr'
+                                          ? const SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Icon(Icons.qr_code_2),
+                                      label: Text(
+                                        _isSubmitting && _submittingMethod == 'qr'
+                                            ? 'กำลังบันทึก...'
+                                            : 'จ่ายด้วย QR (฿${_total.toStringAsFixed(2)})',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: kColorPrimary,
+                                        foregroundColor: kColorWhite,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                           ],
                         ),

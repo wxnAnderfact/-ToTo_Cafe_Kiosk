@@ -8,6 +8,7 @@ import '../models/order.dart';
 import '../providers/cart_provider.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
+import '../utils/customization_rules.dart';
 import 'standby_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -389,11 +390,17 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                Text(
-                                  '${item.sweetness.label} • ${item.milkType.label}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: kColorTextMuted,
-                                  ),
+                                Builder(
+                                  builder: (context) {
+                                    final modSummary = CustomizationRules.getModifierSummary(item, includeLabels: false);
+                                    if (modSummary == null) return const SizedBox.shrink();
+                                    return Text(
+                                      modSummary,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: kColorTextMuted,
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ),

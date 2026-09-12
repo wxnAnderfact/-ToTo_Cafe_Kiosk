@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../models/order.dart';
+import '../utils/customization_rules.dart';
 
 /// Item customization modal — DESIGN.md §6 "Modal (item customization)".
 ///
 /// Layout:
-///   - Hero image full-width at top, rounded top corners only
+///   - Hero image full-width at top, rounded top corners only (supports network & asset URLs)
 ///   - Eyebrow label → serif product name → muted description
-///   - Option groups (Sweetness, Milk Type): eyebrow label, then row of pill chips
-///   - Sticky footer button: full-width primary pill, label left / price right
+///   - Smart Option groups based on CustomizationRules:
+///     - Sweetness (Drinks)
+///     - Milk Type (Drinks with milk)
+///     - "ไม่มีตัวเลือกเพิ่มเติม" note for Bakery / no-option items
+///     - Quantity selector
+///   - Sticky footer button: full-width primary pill, "เพิ่มลงตะกร้า" left / price right
 ///
 /// Returns an [OrderItem] if the user confirms, or `null` if dismissed.
 class ItemCustomizationModal extends StatefulWidget {
@@ -62,15 +67,19 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
   // ── State ───────────────────────────────────────────────────────────────
   SweetnessLevel _selectedSweetness = SweetnessLevel.hundred;
   MilkType _selectedMilkType = MilkType.regular;
+  int _quantity = 1;
 
   void _onConfirm() {
+    final showSweetness = CustomizationRules.showSweetness(widget.category, widget.name);
+    final showMilk = CustomizationRules.showMilkTypeForItem(widget.name);
+
     final item = OrderItem(
       menuItemId: widget.menuItemId,
       name: widget.name,
       price: widget.price,
-      quantity: 1,
-      sweetness: _selectedSweetness,
-      milkType: _selectedMilkType,
+      quantity: _quantity,
+      sweetness: showSweetness ? _selectedSweetness : SweetnessLevel.hundred,
+      milkType: showMilk ? _selectedMilkType : MilkType.regular,
     );
     Navigator.of(context).pop(item);
   }
@@ -80,12 +89,15 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showSweetness = CustomizationRules.showSweetness(widget.category, widget.name);
+    final showMilk = CustomizationRules.showMilkTypeForItem(widget.name);
+    final isBakeryOrNoOptions = !showSweetness && !showMilk;
 
     return Center(
       child: Container(
         width: 420,
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
         ),
         margin: const EdgeInsets.all(kSpace24),
         decoration: BoxDecoration(
@@ -123,7 +135,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                       children: [
                         // Eyebrow label
                         Text(
-                          'CUSTOMIZE YOUR DRINK',
+                          isBakeryOrNoOptions ? 'SELECT ITEM' : 'CUSTOMIZE YOUR DRINK',
                           style: theme.textTheme.labelMedium,
                         ),
                         const SizedBox(height: kSpace8),
@@ -138,65 +150,121 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                         // Description (muted)
                         if (widget.description != null)
                           Padding(
-                            padding:
-                                const EdgeInsets.only(bottom: kSpace16),
+                            padding: const EdgeInsets.only(bottom: kSpace16),
                             child: Text(
                               widget.description!,
                               style: theme.textTheme.bodySmall,
                             ),
                           ),
 
-                        const SizedBox(height: kSpace24),
+                        const SizedBox(height: kSpace16),
 
-                        if (['hot_coffee', 'cold_brew', 'non_coffee'].contains(widget.category)) ...[
-                          // ── Sweetness group ─────────────────────────────
+                        // ── If Bakery / No options: show notice ─────────
+                        if (isBakeryOrNoOptions) ...[
+                          Container(
+                            padding: const EdgeInsets.all(kSpace12),
+                            decoration: BoxDecoration(
+                              color: kColorBg,
+                              borderRadius: BorderRadius.circular(kRadiusBadge),
+                              border: Border.all(color: kColorBorder),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.info_outline, size: 20, color: kColorTextMuted),
+                                const SizedBox(width: kSpace8),
+                                Text(
+                                  'ไม่มีตัวเลือกเพิ่มเติม',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: kColorTextMuted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: kSpace16),
+                        ],
+
+                        // ── Sweetness group ─────────────────────────────
+                        if (showSweetness) ...[
                           _buildOptionGroup(
                             theme: theme,
-                            label: 'SWEETNESS',
+                            label: 'SWEETNESS (ระดับความหวาน)',
                             child: Wrap(
                               spacing: kSpace8,
                               runSpacing: kSpace8,
                               children: SweetnessLevel.values.map((level) {
-                                final isSelected =
-                                    _selectedSweetness == level;
+                                final isSelected = _selectedSweetness == level;
                                 return _OptionChip(
                                   label: level.label,
                                   isSelected: isSelected,
                                   onTap: () {
-                                    setState(
-                                        () => _selectedSweetness = level);
+                                    setState(() => _selectedSweetness = level);
                                   },
                                 );
                               }).toList(),
                             ),
                           ),
-
                           const SizedBox(height: kSpace24),
+                        ],
 
-                          // ── Milk type group ─────────────────────────────
+                        // ── Milk type group ─────────────────────────────
+                        if (showMilk) ...[
                           _buildOptionGroup(
                             theme: theme,
-                            label: 'MILK TYPE',
+                            label: 'MILK TYPE (ชนิดนม)',
                             child: Wrap(
                               spacing: kSpace8,
                               runSpacing: kSpace8,
                               children: MilkType.values.map((milk) {
-                                final isSelected =
-                                    _selectedMilkType == milk;
+                                final isSelected = _selectedMilkType == milk;
                                 return _OptionChip(
                                   label: milk.label,
                                   isSelected: isSelected,
                                   onTap: () {
-                                    setState(
-                                        () => _selectedMilkType = milk);
+                                    setState(() => _selectedMilkType = milk);
                                   },
                                 );
                               }).toList(),
                             ),
                           ),
-
-                          const SizedBox(height: kSpace16),
+                          const SizedBox(height: kSpace24),
                         ],
+
+                        // ── Quantity Selector ────────────────────────────
+                        _buildOptionGroup(
+                          theme: theme,
+                          label: 'QUANTITY (จำนวน)',
+                          child: Row(
+                            children: [
+                              IconButton(
+                                onPressed: _quantity > 1
+                                    ? () => setState(() => _quantity--)
+                                    : null,
+                                icon: const Icon(Icons.remove_circle_outline),
+                                iconSize: 28,
+                                color: kColorPrimary,
+                              ),
+                              Container(
+                                width: 48,
+                                alignment: Alignment.center,
+                                child: Text(
+                                  '$_quantity',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => setState(() => _quantity++),
+                                icon: const Icon(Icons.add_circle_outline),
+                                iconSize: 28,
+                                color: kColorPrimary,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: kSpace16),
                       ],
                     ),
                   ),
@@ -217,7 +285,6 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
   Widget _buildHeroImage(ThemeData theme) {
     return Stack(
       children: [
-        // Hero image — full width, rounded top corners only
         ClipRRect(
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(kRadiusModal),
@@ -227,6 +294,12 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
             width: double.infinity,
             height: 200,
             fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Container(
+              width: double.infinity,
+              height: 200,
+              color: kTan,
+              child: const Icon(Icons.coffee, size: 40, color: kCoffee500),
+            ),
           ),
         ),
 
@@ -275,6 +348,8 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
   // ── Sticky footer button (primary pill, label left / price right) ──────
 
   Widget _buildFooterButton(ThemeData theme) {
+    final lineTotal = widget.price * _quantity;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(
         kSpace24,
@@ -293,8 +368,8 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Add to Cart'),
-              Text('฿${widget.price.toStringAsFixed(0)}'),
+              const Text('เพิ่มลงตะกร้า'),
+              Text('฿${lineTotal.toStringAsFixed(0)}'),
             ],
           ),
         ),
@@ -307,11 +382,6 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
 // Private sub-widgets
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// A pill-shaped option chip matching DESIGN.md §6 "Chips":
-///
-/// - **Unselected**: transparent bg, `--color-border` outline,
-///   `--color-text-body` text, pill radius.
-/// - **Selected**: `--color-primary` bg, white text, pill radius.
 class _OptionChip extends StatelessWidget {
   const _OptionChip({
     required this.label,

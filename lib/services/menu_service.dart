@@ -101,7 +101,10 @@ class MenuService {
   Future<bool> seedIfEmpty() async {
     try {
       final snapshot = await _collection.limit(1).get().timeout(const Duration(seconds: 8));
-      if (snapshot.docs.isNotEmpty) return false;
+      if (snapshot.docs.isNotEmpty) {
+        unawaited(updateMenuImages());
+        return false;
+      }
 
       final batch = _firestore.batch();
       for (final item in _seedItems) {
@@ -112,6 +115,30 @@ class MenuService {
     } catch (e) {
       debugPrint('seedIfEmpty failed: $e');
       return false;
+    }
+  }
+
+  /// One-time migration: updates image_url for all existing documents by matching item name.
+  Future<void> updateMenuImages() async {
+    try {
+      final snapshot = await _collection.get();
+      final batch = _firestore.batch();
+      var updateCount = 0;
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final name = data['name'] as String? ?? '';
+        final newUrl = menuImageMap[name];
+        if (newUrl != null && data['image_url'] != newUrl) {
+          batch.update(doc.reference, {'image_url': newUrl});
+          updateCount++;
+        }
+      }
+      if (updateCount > 0) {
+        await batch.commit();
+        debugPrint('--- [DEBUG] updateMenuImages: updated $updateCount items with Unsplash URLs ---');
+      }
+    } catch (e) {
+      debugPrint('--- [DEBUG] updateMenuImages failed: $e ---');
     }
   }
 
@@ -126,6 +153,20 @@ class MenuService {
   }
 }
 
+// ── Image assignments mapping ─────────────────────────────────────────────
+
+const Map<String, String> menuImageMap = {
+  'Americano': 'assets/images/americano.png',
+  'Cappuccino': 'assets/images/cappuccino.png',
+  'Hot Latte': 'assets/images/hot_coffee.png',
+  'Classic Cold Brew': 'assets/images/cold_brew.png',
+  'Iced Mocha': 'assets/images/iced_mocha.png',
+  'Matcha Latte': 'assets/images/matcha_latte.png',
+  'Thai Tea': 'assets/images/thai_tea.png',
+  'Almond Croissant': 'assets/images/almond_croissant.png',
+  'Banana Bread': 'assets/images/banana_bread.png',
+};
+
 // ── Seed data ─────────────────────────────────────────────────────────────
 // Used only by [MenuService.seedIfEmpty] — prices are stored in Firestore,
 // never hardcoded in UI code (per AGENTS.md rules).
@@ -138,7 +179,7 @@ final List<MenuItem> _seedItems = [
     price: 45,
     isAvailable: true,
     description: 'Rich espresso with steamed milk',
-    imageUrl: 'assets/images/hot_coffee.png',
+    imageUrl: menuImageMap['Hot Latte'],
   ),
   MenuItem(
     name: 'Cappuccino',
@@ -146,7 +187,7 @@ final List<MenuItem> _seedItems = [
     price: 50,
     isAvailable: true,
     description: 'Espresso with thick milk foam',
-    imageUrl: 'assets/images/hot_coffee.png',
+    imageUrl: menuImageMap['Cappuccino'],
   ),
   MenuItem(
     name: 'Americano',
@@ -154,7 +195,7 @@ final List<MenuItem> _seedItems = [
     price: 40,
     isAvailable: true,
     description: 'Espresso diluted with hot water',
-    imageUrl: 'assets/images/hot_coffee.png',
+    imageUrl: menuImageMap['Americano'],
   ),
 
   // ── Cold Brew ─────────────────────────────────────────────────────────
@@ -164,7 +205,7 @@ final List<MenuItem> _seedItems = [
     price: 55,
     isAvailable: true,
     description: 'Slow-steeped for 12 hours',
-    imageUrl: 'assets/images/cold_brew.png',
+    imageUrl: menuImageMap['Classic Cold Brew'],
   ),
   MenuItem(
     name: 'Iced Mocha',
@@ -172,7 +213,7 @@ final List<MenuItem> _seedItems = [
     price: 60,
     isAvailable: true,
     description: 'Cold brew with chocolate and milk',
-    imageUrl: 'assets/images/cold_brew.png',
+    imageUrl: menuImageMap['Iced Mocha'],
   ),
 
   // ── Non-Coffee ────────────────────────────────────────────────────────
@@ -182,7 +223,7 @@ final List<MenuItem> _seedItems = [
     price: 75,
     isAvailable: true,
     description: 'Ceremonial grade matcha with milk',
-    imageUrl: 'assets/images/matcha_latte.png',
+    imageUrl: menuImageMap['Matcha Latte'],
   ),
   MenuItem(
     name: 'Thai Tea',
@@ -190,7 +231,7 @@ final List<MenuItem> _seedItems = [
     price: 50,
     isAvailable: true,
     description: 'Classic Thai iced tea',
-    imageUrl: 'assets/images/matcha_latte.png',
+    imageUrl: menuImageMap['Thai Tea'],
   ),
 
   // ── Bakery ────────────────────────────────────────────────────────────
@@ -200,7 +241,7 @@ final List<MenuItem> _seedItems = [
     price: 65,
     isAvailable: true,
     description: 'Flaky pastry with almond filling',
-    imageUrl: 'assets/images/almond_croissant.png',
+    imageUrl: menuImageMap['Almond Croissant'],
   ),
   MenuItem(
     name: 'Banana Bread',
@@ -208,6 +249,6 @@ final List<MenuItem> _seedItems = [
     price: 55,
     isAvailable: true,
     description: 'Homemade with walnuts',
-    imageUrl: 'assets/images/almond_croissant.png',
+    imageUrl: menuImageMap['Banana Bread'],
   ),
 ];
