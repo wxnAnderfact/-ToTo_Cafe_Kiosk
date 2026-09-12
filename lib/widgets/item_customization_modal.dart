@@ -61,14 +61,11 @@ class ItemCustomizationModal extends StatefulWidget {
   }
 
   static List<String> getMilkOptions(String itemName) {
-    if (itemName == 'Thai Tea') {
-      return ['นมข้นหวาน', 'นมสด', 'นมข้นจืด'];
-    }
     if (itemName == 'Matcha Latte') {
       return ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'];
     }
-    // Default coffee milk options:
-    return ['Regular', 'นมโอ๊ต', 'นมอัลมอนด์'];
+    // Thai Tea and all other drinks:
+    return ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'];
   }
 
   @override

@@ -776,8 +776,25 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                       total: order.total,
                       onApprove: () async {
                         await _orderService.approveOrder(order.id!);
-                        if (context.mounted) {
-                          await _showReceiptDialog(context, order);
+                        if (order.paymentMethod == PaymentMethod.qr) {
+                          // QR: receipt shown on kiosk side
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  context.read<LocaleProvider>().t(
+                                    'ยืนยันการชำระเงิน QR สำเร็จ',
+                                    'QR payment approved',
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                        } else {
+                          // Cash: show receipt dialog on POS
+                          if (context.mounted) {
+                            await _showReceiptDialog(context, order);
+                          }
                         }
                       },
                       onReceipt: () => _showReceiptBottomSheet(context, order),
