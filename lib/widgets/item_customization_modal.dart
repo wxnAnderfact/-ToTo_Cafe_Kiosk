@@ -58,6 +58,17 @@ class ItemCustomizationModal extends StatefulWidget {
     );
   }
 
+  static List<String> getMilkOptions(String itemName) {
+    if (itemName == 'Thai Tea') {
+      return ['นมข้นหวาน', 'นมสด', 'นมข้นจืด'];
+    }
+    if (itemName == 'Matcha Latte') {
+      return ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'];
+    }
+    // Default coffee milk options:
+    return ['Regular', 'นมโอ๊ต', 'นมอัลมอนด์'];
+  }
+
   @override
   State<ItemCustomizationModal> createState() =>
       _ItemCustomizationModalState();
@@ -66,8 +77,15 @@ class ItemCustomizationModal extends StatefulWidget {
 class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
   // ── State ───────────────────────────────────────────────────────────────
   SweetnessLevel _selectedSweetness = SweetnessLevel.hundred;
-  MilkType _selectedMilkType = MilkType.regular;
+  late String _selectedMilk;
   int _quantity = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    final options = ItemCustomizationModal.getMilkOptions(widget.name);
+    _selectedMilk = options.first;
+  }
 
   void _onConfirm() {
     final showSweetness = CustomizationRules.showSweetness(widget.category, widget.name);
@@ -79,7 +97,7 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
       price: widget.price,
       quantity: _quantity,
       sweetness: showSweetness ? _selectedSweetness : SweetnessLevel.hundred,
-      milkType: showMilk ? _selectedMilkType : MilkType.regular,
+      milkType: showMilk ? MilkType.fromString(_selectedMilk) : MilkType.regular,
     );
     Navigator.of(context).pop(item);
   }
@@ -215,13 +233,13 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                             child: Wrap(
                               spacing: kSpace8,
                               runSpacing: kSpace8,
-                              children: MilkType.values.map((milk) {
-                                final isSelected = _selectedMilkType == milk;
+                              children: ItemCustomizationModal.getMilkOptions(widget.name).map((milkOption) {
+                                final isSelected = _selectedMilk == milkOption;
                                 return _OptionChip(
-                                  label: milk.label,
+                                  label: milkOption,
                                   isSelected: isSelected,
                                   onTap: () {
-                                    setState(() => _selectedMilkType = milk);
+                                    setState(() => _selectedMilk = milkOption);
                                   },
                                 );
                               }).toList(),

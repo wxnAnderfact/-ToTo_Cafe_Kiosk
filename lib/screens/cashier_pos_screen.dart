@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:thai_promptpay/thai_promptpay.dart';
@@ -43,6 +45,14 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
   final _menuService = MenuService();
   PosFilter _selectedFilter = PosFilter.all;
 
+  Future<void> _showReceiptDialog(BuildContext context, Order order) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _ReceiptDialog(order: order),
+    );
+  }
+
   void _openNewCounterOrder(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -50,6 +60,17 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
       builder: (_) => _CounterOrderDialog(
         onQrOrderCreated: (created) {
           _showCounterQrBottomSheet(context, created);
+        },
+        onCashOrderCreated: (created) async {
+          await _showReceiptDialog(context, created);
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('สร้างออร์เดอร์สำเร็จ คิวที่ ${created.queueNumber}'),
+                backgroundColor: kColorPrimary,
+              ),
+            );
+          }
         },
       ),
     );
@@ -410,6 +431,9 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                           Navigator.of(bottomSheetContext).pop();
                         }
                         if (context.mounted) {
+                          await _showReceiptDialog(context, order);
+                        }
+                        if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('ชำระเงินสำเร็จ คิวที่ $queueStr'),
@@ -690,6 +714,9 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                         try {
                           await _orderService.approveOrder(order.id!);
                           if (context.mounted) {
+                            await _showReceiptDialog(context, order);
+                          }
+                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text('Order #${order.queueNumber} approved!'),
@@ -941,9 +968,13 @@ class _OrderCard extends StatelessWidget {
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _CounterOrderDialog extends StatefulWidget {
-  const _CounterOrderDialog({this.onQrOrderCreated});
+  const _CounterOrderDialog({
+    this.onQrOrderCreated,
+    this.onCashOrderCreated,
+  });
 
   final ValueChanged<Order>? onQrOrderCreated;
+  final ValueChanged<Order>? onCashOrderCreated;
 
   @override
   State<_CounterOrderDialog> createState() => _CounterOrderDialogState();
@@ -1007,16 +1038,20 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
         total: _total,
       );
 
-      await _orderService.createOrder(order);
+      final created = await _orderService.createOrder(order);
 
       if (mounted) {
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('สร้างออร์เดอร์สำเร็จ คิวที่ $queueNumber'),
-            backgroundColor: kColorPrimary,
-          ),
-        );
+        if (widget.onCashOrderCreated != null) {
+          widget.onCashOrderCreated!(created);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('สร้างออร์เดอร์สำเร็จ คิวที่ $queueNumber'),
+              backgroundColor: kColorPrimary,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1423,3 +1458,289 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
     );
   }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Thermal Receipt Dialog after Payment Approval
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _ReceiptDialog extends StatelessWidget {
+  const _ReceiptDialog({required this.order});
+
+  final Order order;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final now = order.createdAt ?? DateTime.now();
+    final dateStr =
+        '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final paymentMethodStr =
+        order.paymentMethod == PaymentMethod.qr ? 'QR PromptPay' : 'เงินสด';
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadiusCard)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Padding(
+          padding: const EdgeInsets.all(kSpace16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Title: "ชำระเงินสำเร็จ ✓"
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.check_circle, color: kColorPrimary, size: 22),
+                  const SizedBox(width: kSpace8),
+                  Text(
+                    'ชำระเงินสำเร็จ ✓',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: kColorPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: kSpace16),
+
+              // Thermal receipt paper container
+              Container(
+                padding: const EdgeInsets.all(kSpace16),
+                decoration: BoxDecoration(
+                  color: kCream,
+                  borderRadius: BorderRadius.circular(kRadiusCard),
+                  border: Border.all(color: kTan),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Centered: "ToTo Cafe" (Noto Serif Thai, bold)
+                    Center(
+                      child: Text(
+                        'ToTo Cafe',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontFamily: 'Noto Serif Thai',
+                          fontWeight: FontWeight.bold,
+                          color: kCoffee900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Centered: "================================"
+                    const Center(
+                      child: Text(
+                        '================================',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          color: kCoffee700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Queue number: "คิวที่ {queueNumber}" & Date/Time
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'คิวที่ ${order.queueNumber}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            color: kCoffee900,
+                          ),
+                        ),
+                        Text(
+                          dateStr,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: kCoffee700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(color: kCoffee500, height: 1),
+                    const SizedBox(height: 8),
+
+                    // List of items: "{name} x{qty}  ฿{lineTotal}"
+                    ...order.items.map((item) {
+                      final modSummary =
+                          CustomizationRules.getModifierSummary(item, includeLabels: false);
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${item.name} x${item.quantity}',
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: kCoffee900,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '฿${item.lineTotal.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: kCoffee900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            // Modifier line if applicable: "  {sweetness} • {milkType}" (smaller, muted)
+                            if (modSummary != null)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8, top: 1),
+                                child: Text(
+                                  '  $modSummary',
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                    color: kCoffee700.withValues(alpha: 0.8),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }),
+
+                    const SizedBox(height: 8),
+                    const Divider(color: kCoffee500, height: 1),
+                    const SizedBox(height: 8),
+
+                    // Subtotal
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Subtotal:',
+                          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
+                        ),
+                        Text(
+                          '฿${order.subtotal.toStringAsFixed(2)}',
+                          style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+
+                    // VAT 7%
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'VAT 7%:',
+                          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
+                        ),
+                        Text(
+                          '฿${order.vat.toStringAsFixed(2)}',
+                          style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+
+                    // รวมทั้งหมด: ฿{total} (bold)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'รวมทั้งหมด:',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: kCoffee900,
+                          ),
+                        ),
+                        Text(
+                          '฿${order.total.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: kCoffee900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Payment method: "ชำระด้วย: {QR PromptPay / เงินสด}"
+                    Text(
+                      'ชำระด้วย: $paymentMethodStr',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: kCoffee700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Centered: "ขอบคุณที่ใช้บริการ"
+                    const Center(
+                      child: Text(
+                        'ขอบคุณที่ใช้บริการ',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: kCoffee900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: kSpace16),
+
+              // Two buttons at bottom:
+              // 1. "🖨️ พิมพ์ใบเสร็จ" → calls window.print() via dart:html, then closes dialog
+              // 2. "ปิด (ไม่พิมพ์)" → closes dialog only
+              SizedBox(
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: () {
+                    html.window.print();
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kColorPrimary,
+                    foregroundColor: kColorWhite,
+                  ),
+                  child: const Text('🖨️ พิมพ์ใบเสร็จ'),
+                ),
+              ),
+              const SizedBox(height: kSpace8),
+              SizedBox(
+                height: 44,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('ปิด (ไม่พิมพ์)'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

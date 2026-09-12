@@ -13,11 +13,21 @@ class CustomizationRules {
   static const noMilkItems = [
     'Americano',
     'Classic Cold Brew',
-    'Thai Tea',
-    'Matcha Latte',
     'Almond Croissant',
     'Banana Bread',
   ];
+
+  /// Milk options tailored per item.
+  static List<String> getMilkOptions(String itemName) {
+    if (itemName == 'Thai Tea') {
+      return ['นมข้นหวาน', 'นมสด', 'นมข้นจืด'];
+    }
+    if (itemName == 'Matcha Latte') {
+      return ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'];
+    }
+    // Default coffee milk options:
+    return ['Regular', 'นมโอ๊ต', 'นมอัลมอนด์'];
+  }
 
   /// Show sweetness for drinks (hot coffee, cold brew, non-coffee).
   /// Hide for bakery items.

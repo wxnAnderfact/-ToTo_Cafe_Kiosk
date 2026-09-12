@@ -62,8 +62,11 @@ enum SweetnessLevel {
 /// Milk type modifier.
 enum MilkType {
   regular('regular', 'Regular'),
-  oat('oat', 'Oat Milk'),
-  almond('almond', 'Almond Milk');
+  oat('oat', 'นมโอ๊ต'),
+  almond('almond', 'นมอัลมอนด์'),
+  condensed('condensed', 'นมข้นหวาน'),
+  fresh('fresh', 'นมสด'),
+  evaporated('evaporated', 'นมข้นจืด');
 
   const MilkType(this.value, this.label);
   final String value;
@@ -71,7 +74,11 @@ enum MilkType {
 
   static MilkType fromString(String s) {
     return MilkType.values.firstWhere(
-      (e) => e.value == s,
+      (e) =>
+          e.value == s ||
+          e.label == s ||
+          (e == MilkType.oat && (s == 'Oat Milk' || s == 'oat_milk')) ||
+          (e == MilkType.almond && (s == 'Almond Milk' || s == 'almond_milk')),
       orElse: () => MilkType.regular,
     );
   }

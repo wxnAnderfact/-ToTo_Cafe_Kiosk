@@ -16,17 +16,36 @@ void main() {
       expect(CustomizationRules.showSweetness('hot_coffee', 'Americano'), isTrue);
     });
 
-    test('showMilkTypeForItem excludes drinks without milk and bakery', () {
+    test('showMilkTypeForItem excludes drinks without milk and bakery, includes drinks with milk', () {
       expect(CustomizationRules.showMilkTypeForItem('Americano'), isFalse);
       expect(CustomizationRules.showMilkTypeForItem('Classic Cold Brew'), isFalse);
-      expect(CustomizationRules.showMilkTypeForItem('Thai Tea'), isFalse);
-      expect(CustomizationRules.showMilkTypeForItem('Matcha Latte'), isFalse);
       expect(CustomizationRules.showMilkTypeForItem('Almond Croissant'), isFalse);
       expect(CustomizationRules.showMilkTypeForItem('Banana Bread'), isFalse);
 
+      expect(CustomizationRules.showMilkTypeForItem('Thai Tea'), isTrue);
+      expect(CustomizationRules.showMilkTypeForItem('Matcha Latte'), isTrue);
       expect(CustomizationRules.showMilkTypeForItem('Hot Latte'), isTrue);
       expect(CustomizationRules.showMilkTypeForItem('Cappuccino'), isTrue);
       expect(CustomizationRules.showMilkTypeForItem('Iced Mocha'), isTrue);
+    });
+
+    test('getMilkOptions returns item-specific milk options', () {
+      expect(
+        CustomizationRules.getMilkOptions('Thai Tea'),
+        ['นมข้นหวาน', 'นมสด', 'นมข้นจืด'],
+      );
+      expect(
+        CustomizationRules.getMilkOptions('Matcha Latte'),
+        ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'],
+      );
+      expect(
+        CustomizationRules.getMilkOptions('Hot Latte'),
+        ['Regular', 'นมโอ๊ต', 'นมอัลมอนด์'],
+      );
+      expect(
+        CustomizationRules.getMilkOptions('Cappuccino'),
+        ['Regular', 'นมโอ๊ต', 'นมอัลมอนด์'],
+      );
     });
 
     test('getModifierSummary formats only applicable modifiers', () {
@@ -40,7 +59,33 @@ void main() {
       );
       expect(
         CustomizationRules.getModifierSummary(latte),
-        'Sweetness: 50% • Milk: Oat Milk',
+        'Sweetness: 50% • Milk: นมโอ๊ต',
+      );
+
+      final thaiTea = OrderItem(
+        menuItemId: '4',
+        name: 'Thai Tea',
+        price: 50,
+        quantity: 1,
+        sweetness: SweetnessLevel.fifty,
+        milkType: MilkType.condensed,
+      );
+      expect(
+        CustomizationRules.getModifierSummary(thaiTea, includeLabels: false),
+        '50% • นมข้นหวาน',
+      );
+
+      final matcha = OrderItem(
+        menuItemId: '5',
+        name: 'Matcha Latte',
+        price: 75,
+        quantity: 1,
+        sweetness: SweetnessLevel.hundred,
+        milkType: MilkType.fresh,
+      );
+      expect(
+        CustomizationRules.getModifierSummary(matcha, includeLabels: false),
+        '100% • นมสด',
       );
 
       final americano = OrderItem(

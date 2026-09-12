@@ -3,6 +3,7 @@ import 'package:thai_promptpay/thai_promptpay.dart';
 import 'package:toto_cafe_kiosk/models/order.dart';
 import 'package:toto_cafe_kiosk/services/menu_service.dart';
 import 'package:toto_cafe_kiosk/utils/vat_calculator.dart';
+import 'package:toto_cafe_kiosk/widgets/item_customization_modal.dart';
 
 void main() {
   group('Task 1: Local Image Assets Mapping', () {
@@ -76,6 +77,54 @@ void main() {
       final idPayload = promptPayNationalId('1100100000018', amountSatang: amountSatang);
       expect(idPayload, contains('1100100000018'));
       expect(idPayload, contains('107.00'));
+    });
+  });
+
+  group('Fix 2: Milk Options for Thai Tea and Matcha Latte', () {
+    test('ItemCustomizationModal.getMilkOptions returns correct list for each drink', () {
+      expect(
+        ItemCustomizationModal.getMilkOptions('Thai Tea'),
+        ['นมข้นหวาน', 'นมสด', 'นมข้นจืด'],
+      );
+      expect(
+        ItemCustomizationModal.getMilkOptions('Matcha Latte'),
+        ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'],
+      );
+      expect(
+        ItemCustomizationModal.getMilkOptions('Hot Latte'),
+        ['Regular', 'นมโอ๊ต', 'นมอัลมอนด์'],
+      );
+    });
+
+    test('MilkType serialization and parsing preserves Thai milk options', () {
+      final condensed = MilkType.fromString('นมข้นหวาน');
+      expect(condensed, MilkType.condensed);
+      expect(condensed.label, 'นมข้นหวาน');
+      expect(condensed.value, 'condensed');
+
+      final fresh = MilkType.fromString('นมสด');
+      expect(fresh, MilkType.fresh);
+      expect(fresh.label, 'นมสด');
+
+      final evaporated = MilkType.fromString('นมข้นจืด');
+      expect(evaporated, MilkType.evaporated);
+      expect(evaporated.label, 'นมข้นจืด');
+
+      final item = OrderItem(
+        menuItemId: 'thai_tea_1',
+        name: 'Thai Tea',
+        price: 50,
+        quantity: 2,
+        sweetness: SweetnessLevel.twentyFive,
+        milkType: condensed,
+      );
+
+      final json = item.toJson();
+      expect(json['milk_type'], 'condensed');
+
+      final restored = OrderItem.fromJson(json);
+      expect(restored.milkType, MilkType.condensed);
+      expect(restored.milkType.label, 'นมข้นหวาน');
     });
   });
 }
