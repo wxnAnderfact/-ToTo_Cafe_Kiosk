@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../providers/locale_provider.dart';
 import '../theme.dart';
 import '../widgets/language_toggle.dart';
@@ -139,7 +140,7 @@ class StandbyScreen extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Placeholder for QR code widget
+                    // QR Code generating URL: https://liff.line.me/2011572383-l29PIrit
                     Container(
                       width: 64,
                       height: 64,
@@ -148,10 +149,23 @@ class StandbyScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(kSpace8),
                         border: Border.all(color: kColorBorder),
                       ),
-                      child: const Icon(
-                        Icons.qr_code_2,
-                        size: 48,
-                        color: kCoffee900,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(kSpace8),
+                        child: QrImageView(
+                          data: 'https://liff.line.me/2011572383-l29PIrit',
+                          version: QrVersions.auto,
+                          size: 64,
+                          padding: const EdgeInsets.all(4),
+                          backgroundColor: Colors.white,
+                          eyeStyle: const QrEyeStyle(
+                            eyeShape: QrEyeShape.square,
+                            color: kCoffee900,
+                          ),
+                          dataModuleStyle: const QrDataModuleStyle(
+                            dataModuleShape: QrDataModuleShape.square,
+                            color: kCoffee900,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(width: kSpace12),

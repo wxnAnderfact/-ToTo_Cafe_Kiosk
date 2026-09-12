@@ -96,25 +96,75 @@ class MenuService {
     await batch.commit();
   }
 
-  /// Seed the collection with initial menu data (idempotent — skips if
-  /// the collection already has documents).
+  /// Seed the collection with initial menu data (idempotent — only seeds when
+  /// the 'menu_items' collection has zero documents).
   Future<bool> seedIfEmpty() async {
     try {
-      final snapshot = await _collection.limit(1).get().timeout(const Duration(seconds: 8));
+      final snapshot = await _collection.get();
       if (snapshot.docs.isNotEmpty) {
+        debugPrint('seedIfEmpty: collection already has ${snapshot.docs.length} documents. Skipping seed.');
         unawaited(updateMenuImages());
         return false;
       }
 
       final batch = _firestore.batch();
       for (final item in _seedItems) {
-        batch.set(_collection.doc(), item.toJson());
+        // Use deterministic doc ID based on item name to guarantee idempotency
+        final docId = item.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+        batch.set(_collection.doc(docId), item.toJson());
       }
       await batch.commit();
+      debugPrint('seedIfEmpty: successfully seeded ${_seedItems.length} items.');
       return true;
     } catch (e) {
       debugPrint('seedIfEmpty failed: $e');
       return false;
+    }
+  }
+
+  /// One-time cleanup: deduplicate menu items by 'name'.
+  ///
+  /// Fetches all documents in 'menu_items', groups them by 'name',
+  /// keeps only the first document in each group, and deletes the rest.
+  Future<int> deduplicateMenuItems() async {
+    try {
+      final snapshot = await _collection.get();
+      debugPrint('deduplicateMenuItems: found ${snapshot.docs.length} total documents');
+
+      final Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> grouped = {};
+      for (final doc in snapshot.docs) {
+        final name = (doc.data()['name'] as String? ?? '').trim();
+        if (name.isEmpty) continue;
+        grouped.putIfAbsent(name, () => []).add(doc);
+      }
+
+      var deletedCount = 0;
+      final batch = _firestore.batch();
+
+      grouped.forEach((name, docs) {
+        if (docs.length > 1) {
+          debugPrint(
+            'deduplicateMenuItems: "$name" has ${docs.length} docs. '
+            'Keeping ${docs.first.id}, deleting ${docs.length - 1} duplicates.',
+          );
+          for (var i = 1; i < docs.length; i++) {
+            batch.delete(docs[i].reference);
+            deletedCount++;
+          }
+        }
+      });
+
+      if (deletedCount > 0) {
+        await batch.commit();
+        debugPrint('deduplicateMenuItems: deleted $deletedCount duplicate documents.');
+      } else {
+        debugPrint('deduplicateMenuItems: no duplicates found.');
+      }
+
+      return deletedCount;
+    } catch (e) {
+      debugPrint('deduplicateMenuItems error: $e');
+      rethrow;
     }
   }
 

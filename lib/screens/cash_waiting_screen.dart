@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/order.dart';
 import '../providers/cart_provider.dart';
 import '../providers/locale_provider.dart';
+import '../services/member_service.dart';
 import '../theme.dart';
 import '../widgets/language_toggle.dart';
 import 'standby_screen.dart';
@@ -60,6 +61,15 @@ class _CashConfirmScreenState extends State<CashConfirmScreen> {
   void _onComplete() {
     _timer?.cancel();
     if (!mounted) return;
+    final phone = widget.order.memberPhone ?? context.read<CartProvider>().memberPhone;
+    if (phone != null && phone.isNotEmpty) {
+      MemberService().addPointsForPurchase(
+        phone,
+        widget.order.total.toInt(),
+      ).catchError((e) {
+        debugPrint('[Cash] Error adding points for purchase: $e');
+      });
+    }
     context.read<CartProvider>().clear();
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(builder: (_) => const StandbyScreen()),

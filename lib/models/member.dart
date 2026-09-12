@@ -33,10 +33,12 @@ class Member {
   factory Member.fromJson(Map<String, dynamic> json, {String? id}) {
     return Member(
       id: id,
-      phone: json['phone'] as String? ?? '',
-      points: json['points'] as int? ?? 0,
-      joinDate: (json['join_date'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      displayName: json['display_name'] as String?,
+      phone: (json['phone'] ?? '').toString(),
+      points: (json['points'] as num?)?.toInt() ?? 0,
+      joinDate: (json['join_date'] as Timestamp?)?.toDate() ??
+          (json['createdAt'] as Timestamp?)?.toDate() ??
+          DateTime.now(),
+      displayName: (json['displayName'] ?? json['display_name']) as String?,
     );
   }
 

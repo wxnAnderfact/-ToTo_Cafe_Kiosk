@@ -1,0 +1,177 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use, camel_case_types, non_constant_identifier_names
+import 'dart:async';
+import 'dart:js' as dart_js;
+import 'package:flutter/foundation.dart';
+
+/// JS Interop helper providing `js.context`, `js.JsObject`, and `js.allowInterop`.
+class js {
+  static dart_js.JsObject get context => dart_js.context;
+  static F allowInterop<F extends Function>(F f) => f;
+  static final JsObjectFactory JsObject = JsObjectFactory();
+}
+
+class JsObjectFactory {
+  dart_js.JsObject jsify(dynamic obj) => dart_js.JsObject.jsify(obj);
+}
+
+class LiffService {
+  static final LiffService _instance = LiffService._internal();
+  factory LiffService() => _instance;
+  LiffService._internal();
+
+  static const String liffId = '2011572383-l29PIrit';
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
+
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    final completer = Completer<void>();
+
+    try {
+      if (!kIsWeb) {
+        debugPrint('LiffService: Not running on web.');
+        completer.complete();
+        return;
+      }
+
+      if (!js.context.hasProperty('liff') || js.context['liff'] == null) {
+        debugPrint('LiffService: window.liff is not defined.');
+        completer.complete();
+        return;
+      }
+
+      final liff = js.context['liff'] as dart_js.JsObject;
+      final initObj = js.JsObject.jsify({
+        'liffId': liffId,
+      });
+
+      // Call liff.init with callbacks and handle the returned Promise
+      final res = liff.callMethod('init', [
+        initObj,
+        js.allowInterop((_) {
+          if (!completer.isCompleted) {
+            _isInitialized = true;
+            completer.complete();
+          }
+        }),
+        js.allowInterop((e) {
+          if (!completer.isCompleted) {
+            completer.completeError(e ?? 'LIFF initialization failed');
+          }
+        }),
+      ]);
+
+      // In LIFF v2, init returns a Promise:
+      if (res is dart_js.JsObject && res.hasProperty('then')) {
+        res.callMethod('then', [
+          js.allowInterop((_) {
+            if (!completer.isCompleted) {
+              _isInitialized = true;
+              completer.complete();
+            }
+          }),
+          js.allowInterop((e) {
+            if (!completer.isCompleted) {
+              completer.completeError(e ?? 'LIFF init promise rejected');
+            }
+          }),
+        ]);
+      } else {
+        _isInitialized = true;
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      }
+    } catch (e) {
+      debugPrint('LiffService.initialize catch: $e');
+      if (!completer.isCompleted) {
+        completer.completeError(e);
+      }
+    }
+
+    await completer.future;
+  }
+
+  bool isLoggedIn() {
+    try {
+      if (!kIsWeb) return false;
+      if (js.context.hasProperty('liff') && js.context['liff'] != null) {
+        final result = js.context['liff'].callMethod('isLoggedIn', []);
+        return result == true;
+      }
+    } catch (e) {
+      debugPrint('LiffService.isLoggedIn error: $e');
+    }
+    return false;
+  }
+
+  bool isInClient() {
+    try {
+      if (!kIsWeb) return false;
+      if (js.context.hasProperty('liff') && js.context['liff'] != null) {
+        final result = js.context['liff'].callMethod('isInClient', []);
+        return result == true;
+      }
+    } catch (e) {
+      debugPrint('LiffService.isInClient error: $e');
+    }
+    return false;
+  }
+
+  void login() {
+    try {
+      if (!kIsWeb) return;
+      if (js.context.hasProperty('liff') && js.context['liff'] != null) {
+        js.context['liff'].callMethod('login', []);
+      }
+    } catch (e) {
+      debugPrint('LiffService.login error: $e');
+    }
+  }
+
+  Future<Map<String, String>> getProfile() async {
+    final completer = Completer<Map<String, String>>();
+    try {
+      if (!kIsWeb) {
+        return {'userId': '', 'displayName': '', 'pictureUrl': ''};
+      }
+
+      if (js.context.hasProperty('liff') && js.context['liff'] != null) {
+        final liff = js.context['liff'] as dart_js.JsObject;
+        final profilePromise = liff.callMethod('getProfile', []);
+
+        if (profilePromise is dart_js.JsObject && profilePromise.hasProperty('then')) {
+          profilePromise.callMethod('then', [
+            js.allowInterop((profile) {
+              if (!completer.isCompleted) {
+                completer.complete({
+                  'userId': (profile['userId'] ?? '').toString(),
+                  'displayName': (profile['displayName'] ?? '').toString(),
+                  'pictureUrl': (profile['pictureUrl'] ?? '').toString(),
+                });
+              }
+            }),
+            js.allowInterop((error) {
+              debugPrint('LiffService.getProfile error: $error');
+              if (!completer.isCompleted) {
+                completer.complete({
+                  'userId': '',
+                  'displayName': '',
+                  'pictureUrl': '',
+                });
+              }
+            }),
+          ]);
+          return await completer.future;
+        }
+      }
+    } catch (e) {
+      debugPrint('LiffService.getProfile catch: $e');
+    }
+    return {
+      'userId': '',
+      'displayName': '',
+      'pictureUrl': '',
+    };
+  }
+}

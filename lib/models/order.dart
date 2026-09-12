@@ -168,6 +168,8 @@ class Order {
     required this.vat,
     required this.total,
     this.memberId,
+    this.memberPhone,
+    this.discount = 0.0,
     this.createdAt,
   });
 
@@ -191,6 +193,12 @@ class Order {
   /// Optional member ID for loyalty points.
   final String? memberId;
 
+  /// Optional member phone number.
+  final String? memberPhone;
+
+  /// Member points discount amount in THB.
+  final double discount;
+
   final DateTime? createdAt;
 
   // ── Firestore serialization ─────────────────────────────────────────
@@ -210,6 +218,8 @@ class Order {
       vat: (json['vat'] as num?)?.toDouble() ?? 0,
       total: (json['total'] as num?)?.toDouble() ?? 0,
       memberId: json['member_id'] as String?,
+      memberPhone: (json['memberPhone'] ?? json['member_phone']) as String?,
+      discount: (json['discount'] as num?)?.toDouble() ?? 0.0,
       createdAt: (json['created_at'] as Timestamp?)?.toDate(),
     );
   }
@@ -229,6 +239,8 @@ class Order {
       'vat': vat,
       'total': total,
       if (memberId != null) 'member_id': memberId,
+      if (memberPhone != null) 'memberPhone': memberPhone,
+      if (discount > 0) 'discount': discount,
       'created_at': createdAt != null
           ? Timestamp.fromDate(createdAt!)
           : FieldValue.serverTimestamp(),
@@ -245,6 +257,8 @@ class Order {
     double? vat,
     double? total,
     String? memberId,
+    String? memberPhone,
+    double? discount,
     DateTime? createdAt,
   }) {
     return Order(
@@ -257,6 +271,8 @@ class Order {
       vat: vat ?? this.vat,
       total: total ?? this.total,
       memberId: memberId ?? this.memberId,
+      memberPhone: memberPhone ?? this.memberPhone,
+      discount: discount ?? this.discount,
       createdAt: createdAt ?? this.createdAt,
     );
   }

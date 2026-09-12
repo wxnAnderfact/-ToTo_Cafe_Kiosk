@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+// ignore: depend_on_referenced_packages
+import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +12,7 @@ import 'services/menu_service.dart';
 import 'router.dart';
 
 void main() async {
+  setUrlStrategy(PathUrlStrategy());
   debugPrint('--- [DEBUG] main() started ---');
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint('--- [DEBUG] WidgetsFlutterBinding initialized ---');

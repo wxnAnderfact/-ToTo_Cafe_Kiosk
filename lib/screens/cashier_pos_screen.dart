@@ -2,12 +2,15 @@
 import 'dart:async';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:thai_promptpay/thai_promptpay.dart';
+import '../models/member.dart';
 import '../models/menu_item.dart';
 import '../models/order.dart';
 import '../providers/locale_provider.dart';
+import '../services/member_service.dart';
 import '../services/menu_service.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
@@ -117,6 +120,14 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
           }
         },
       ),
+    );
+  }
+
+  Future<void> _showManualPointsDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => const _ManualPointsDialog(),
     );
   }
 
@@ -583,6 +594,45 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
               children: [
                 Text('ToTo Cafe', style: theme.textTheme.headlineMedium),
                 const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: () => _showManualPointsDialog(context),
+                  icon: const Icon(Icons.stars, size: 18, color: kColorPrimary),
+                  label: Text(
+                    locale.t('เพิ่มแต้มสมาชิก (กรณีลืมที่ตู้)', 'Add Member Points'),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: kColorPrimary,
+                    side: const BorderSide(color: kColorPrimary),
+                    padding: const EdgeInsets.symmetric(horizontal: kSpace12, vertical: kSpace8),
+                  ),
+                ),
+                const SizedBox(width: kSpace8),
+                IconButton(
+                  icon: const Icon(Icons.auto_fix_high, size: 20, color: kColorTextMuted),
+                  tooltip: locale.t('ลบเมนูที่ซ้ำในระบบ', 'Deduplicate menu items in Firestore'),
+                  onPressed: () async {
+                    try {
+                      final deleted = await _menuService.deduplicateMenuItems();
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            deleted > 0
+                                ? 'ลบเมนูที่ซ้ำสำเร็จ: $deleted รายการ'
+                                : 'ไม่มีเมนูซ้ำในระบบ (No duplicates found)',
+                          ),
+                          backgroundColor: kColorPrimary,
+                        ),
+                      );
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(width: kSpace12),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: kSpace12,
@@ -1825,6 +1875,343 @@ class _ReceiptDialog extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PART B: Manual Points Dialog (Fallback for forgotten member phone at Kiosk)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _ManualPointsDialog extends StatefulWidget {
+  const _ManualPointsDialog();
+
+  @override
+  State<_ManualPointsDialog> createState() => _ManualPointsDialogState();
+}
+
+class _ManualPointsDialogState extends State<_ManualPointsDialog> {
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _amountController = TextEditingController();
+  final MemberService _memberService = MemberService();
+
+  Member? _member;
+  bool _isSearching = false;
+  bool _isSubmitting = false;
+  String? _searchMessage;
+  bool _notFound = false;
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onSearch() async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) return;
+
+    setState(() {
+      _isSearching = true;
+      _searchMessage = null;
+      _notFound = false;
+      _member = null;
+    });
+
+    try {
+      final member = await _memberService.getMemberByPhone(phone);
+      if (!mounted) return;
+      if (member != null) {
+        setState(() {
+          _member = member;
+          _isSearching = false;
+          _notFound = false;
+        });
+      } else {
+        setState(() {
+          _member = null;
+          _isSearching = false;
+          _notFound = true;
+          _searchMessage = 'ไม่พบเบอร์นี้ในระบบสมาชิก';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSearching = false;
+        _notFound = true;
+        _searchMessage = 'เกิดข้อผิดพลาดในการค้นหา';
+      });
+    }
+  }
+
+  Future<void> _onSubmit() async {
+    if (_member == null) return;
+    final amountText = _amountController.text.trim();
+    final amount = double.tryParse(amountText);
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรุณาระบุยอดเงินที่ถูกต้อง')),
+      );
+      return;
+    }
+
+    final points = (amount / 10).floor();
+    if (points <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ยอดเงินต้องอย่างน้อย 10 บาทเพื่อรับ 1 แต้ม')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      await _memberService.addPointsForPurchase(_member!.phone, amount.toInt());
+
+      if (!mounted) return;
+      final memberName = (_member!.displayName != null && _member!.displayName!.isNotEmpty)
+          ? _member!.displayName!
+          : _member!.phone;
+
+      Navigator.of(context).pop();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('เพิ่มแต้มให้ $memberName แล้ว: +$points แต้ม'),
+          backgroundColor: kColorPrimary,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
+
+    final amountText = _amountController.text.trim();
+    final amount = double.tryParse(amountText) ?? 0.0;
+    final calculatedPoints = (amount / 10).floor();
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.stars, color: kGold),
+          const SizedBox(width: kSpace8),
+          Expanded(
+            child: Text(
+              locale.t('เพิ่มแต้มสมาชิก (กรณีลืมที่ตู้)', 'Add Member Points'),
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                locale.t('กรอกเบอร์โทรศัพท์เพื่อค้นหาสมาชิก', 'Enter phone number to search member'),
+                style: theme.textTheme.bodySmall?.copyWith(color: kColorTextMuted),
+              ),
+              const SizedBox(height: kSpace12),
+
+              // Phone Field + Search Button
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 10,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
+                      decoration: InputDecoration(
+                        labelText: locale.t('เบอร์โทรศัพท์สมาชิก', 'Member Phone'),
+                        hintText: '08XXXXXXXX',
+                        prefixIcon: const Icon(Icons.phone, size: 20),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        counterText: '',
+                      ),
+                      onSubmitted: (_) => _onSearch(),
+                    ),
+                  ),
+                  const SizedBox(width: kSpace8),
+                  SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _isSearching ? null : _onSearch,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                      ),
+                      child: _isSearching
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: kColorWhite),
+                            )
+                          : Text(locale.t('ค้นหา', 'Search')),
+                    ),
+                  ),
+                ],
+              ),
+
+              if (_notFound && _searchMessage != null) ...[
+                const SizedBox(height: kSpace8),
+                Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 16, color: kColorTextMuted),
+                    const SizedBox(width: kSpace8),
+                    Text(
+                      _searchMessage!,
+                      style: theme.textTheme.bodySmall?.copyWith(color: kColorTextMuted),
+                    ),
+                  ],
+                ),
+              ],
+
+              // Member details confirmation box
+              if (_member != null) ...[
+                const SizedBox(height: kSpace16),
+                Container(
+                  padding: const EdgeInsets.all(kSpace16),
+                  decoration: BoxDecoration(
+                    color: kGreen100.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(kRadiusCard),
+                    border: Border.all(color: kColorPrimary.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const CircleAvatar(
+                            radius: 18,
+                            backgroundColor: kColorPrimary,
+                            child: Icon(Icons.person, color: kColorWhite, size: 20),
+                          ),
+                          const SizedBox(width: kSpace12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  (_member!.displayName != null && _member!.displayName!.isNotEmpty)
+                                      ? _member!.displayName!
+                                      : 'สมาชิก (${_member!.phone})',
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: kColorTextHeading,
+                                  ),
+                                ),
+                                Text(
+                                  _member!.phone,
+                                  style: theme.textTheme.bodySmall?.copyWith(color: kColorTextMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: kColorSurface,
+                              borderRadius: BorderRadius.circular(kRadiusPill),
+                              border: Border.all(color: kColorBorder),
+                            ),
+                            child: Text(
+                              '${_member!.points} ${locale.t('แต้ม', 'pts')}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: kColorPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: kSpace16),
+
+                // Order amount input
+                TextField(
+                  controller: _amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                  ],
+                  decoration: InputDecoration(
+                    labelText: locale.t('ยอดเงินที่สั่งซื้อ (บาท)', 'Order Amount (Baht)'),
+                    hintText: '100',
+                    prefixIcon: const Icon(Icons.receipt_long, size: 20),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+
+                const SizedBox(height: kSpace12),
+
+                // Calculated points preview
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: kSpace12, vertical: kSpace8),
+                  decoration: BoxDecoration(
+                    color: kColorBg,
+                    borderRadius: BorderRadius.circular(kRadiusCard),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        locale.t('แต้มที่จะได้รับ (100 บ. = 10 แต้ม):', 'Points to add (100 THB = 10 pts):'),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      Text(
+                        '+$calculatedPoints ${locale.t('แต้ม', 'pts')}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: kColorPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(locale.t('ยกเลิก', 'Cancel')),
+        ),
+        ElevatedButton(
+          onPressed: (_member != null && calculatedPoints > 0 && !_isSubmitting)
+              ? _onSubmit
+              : null,
+          child: _isSubmitting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: kColorWhite),
+                )
+              : Text(locale.t('เพิ่มแต้ม', 'Add Points')),
+        ),
+      ],
     );
   }
 }

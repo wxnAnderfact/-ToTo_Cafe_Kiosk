@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../models/member.dart';
 import '../models/order.dart';
 import '../utils/vat_calculator.dart';
 
@@ -8,6 +9,10 @@ import '../utils/vat_calculator.dart';
 /// Subtotal, VAT 7%, and Grand Total via the separated [vat_calculator].
 class CartProvider extends ChangeNotifier {
   final List<OrderItem> _items = [];
+  Member? _member;
+  String? _memberPhone;
+  double _discount = 0.0;
+  int _redeemedPoints = 0;
 
   // ── Getters ─────────────────────────────────────────────────────────────
 
@@ -37,8 +42,24 @@ class CartProvider extends ChangeNotifier {
   /// Grand total (subtotal + VAT).
   double get grandTotal => calculateGrandTotal(subtotal);
 
+  /// Grand total after member points discount.
+  double get totalAfterDiscount =>
+      (grandTotal - _discount).clamp(0.0, double.infinity);
+
   /// Full price breakdown as a value object.
   PriceBreakdown get priceBreakdown => PriceBreakdown.fromSubtotal(subtotal);
+
+  /// Attached member for points earning/redemption.
+  Member? get member => _member;
+
+  /// Attached member phone number.
+  String? get memberPhone => _memberPhone ?? _member?.phone;
+
+  /// Applied discount amount in THB.
+  double get discount => _discount;
+
+  /// Points redeemed for discount.
+  int get redeemedPoints => _redeemedPoints;
 
   // ── Mutations ───────────────────────────────────────────────────────────
 
@@ -111,9 +132,38 @@ class CartProvider extends ChangeNotifier {
     }
   }
 
-  /// Remove all items from the cart.
+  /// Set or clear member.
+  void setMember(Member? member, {String? phone}) {
+    _member = member;
+    _memberPhone = phone ?? member?.phone;
+    if (member == null) {
+      _discount = 0.0;
+      _redeemedPoints = 0;
+    }
+    notifyListeners();
+  }
+
+  /// Apply points discount. Rate: 100 points = 1 baht (pointsToRedeem / 100).
+  void applyDiscount(int pointsToRedeem) {
+    _redeemedPoints = pointsToRedeem;
+    _discount = pointsToRedeem / 100.0;
+    notifyListeners();
+  }
+
+  /// Remove member points discount.
+  void clearDiscount() {
+    _discount = 0.0;
+    _redeemedPoints = 0;
+    notifyListeners();
+  }
+
+  /// Remove all items and member state from the cart.
   void clear() {
     _items.clear();
+    _member = null;
+    _memberPhone = null;
+    _discount = 0.0;
+    _redeemedPoints = 0;
     notifyListeners();
   }
 }

@@ -9,6 +9,7 @@ import 'package:thai_promptpay/thai_promptpay.dart';
 import '../models/order.dart';
 import '../providers/cart_provider.dart';
 import '../providers/locale_provider.dart';
+import '../services/member_service.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
 import '../utils/customization_rules.dart';
@@ -109,7 +110,9 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         queueNumber: queueNumber,
         subtotal: breakdown.subtotal,
         vat: breakdown.vat,
-        total: breakdown.grandTotal,
+        total: cart.totalAfterDiscount,
+        discount: cart.discount,
+        memberPhone: cart.memberPhone,
       );
 
       // 3. Write to Firestore — get back the doc with its id
@@ -159,8 +162,20 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   }
 
   Future<void> _handlePaymentSuccess(Order updated) async {
+    // If member phone was attached to this order, add points for purchase
+    final phone = updated.memberPhone ?? context.read<CartProvider>().memberPhone;
+    if (phone != null && phone.isNotEmpty) {
+      try {
+        await MemberService().addPointsForPurchase(phone, updated.total.toInt());
+      } catch (e) {
+        debugPrint('[QR] Error adding points for purchase: $e');
+      }
+    }
+
     // Cashier approved — clear cart and show success
-    context.read<CartProvider>().clear();
+    if (mounted) {
+      context.read<CartProvider>().clear();
+    }
     _orderSub?.cancel();
     setState(() {
       _order = updated;

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'screens/standby_screen.dart';
@@ -5,6 +6,7 @@ import 'screens/main_menu_screen.dart';
 import 'screens/checkout_screen.dart';
 import 'screens/qr_payment_screen.dart';
 import 'screens/cashier_pos_screen.dart';
+import 'screens/member_screen.dart';
 
 // ---------------------------------------------------------------------------
 // ToTo Cafe — GoRouter configuration
@@ -22,6 +24,17 @@ import 'screens/cashier_pos_screen.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/kiosk',
+  redirect: (context, state) {
+    final location = state.uri.toString();
+    // If LIFF redirects with access_token in path, redirect to /member
+    if (location.contains('access_token') || location.contains('liff.state')) {
+      return '/member';
+    }
+    return null;
+  },
+  errorBuilder: (context, state) => Scaffold(
+    body: Center(child: Text('Page not found: ${state.uri}')),
+  ),
   routes: [
     // ── Root redirect ──────────────────────────────────────────────────────
     GoRoute(
@@ -53,6 +66,12 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/pos',
       builder: (context, state) => const CashierPosScreen(),
+    ),
+
+    // ── Member (LINE LIFF) route ──────────────────────────────────────────
+    GoRoute(
+      path: '/member',
+      builder: (context, state) => const MemberScreen(),
     ),
   ],
 );
