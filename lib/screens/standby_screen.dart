@@ -1,113 +1,205 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+
 import '../providers/locale_provider.dart';
 import '../theme.dart';
 import '../widgets/language_toggle.dart';
-import 'main_menu_screen.dart';
 
-/// หน้า 1: Standby (พักหน้าจอ)
+/// หน้า 1: Standby (พักหน้าจอ) / Kiosk Welcome Page
 ///
-/// - วิดีโอ/ภาพบรรยากาศร้านวนลูปเต็มจอ
-/// - QR Code สมัครสมาชิกมุมขวาล่าง (ไม่บังคับ)
-/// - ปุ่มใหญ่ "Tap to start ordering" กลาง/ด้านล่างจอ
-class StandbyScreen extends StatelessWidget {
+/// - Animated cycling background with crossfade and dark overlay
+/// - Prominent circular ToTo's Cafe logo at top center
+/// - Typography and CTA button
+/// - Prominent redesigned Member QR card at bottom-right
+/// - TH/EN Language toggle at top-right
+class StandbyScreen extends StatefulWidget {
   const StandbyScreen({super.key});
 
+  @override
+  State<StandbyScreen> createState() => _StandbyScreenState();
+}
+
+class _StandbyScreenState extends State<StandbyScreen> {
+  static const List<String> _bgImages = [
+    'assets/images/hot_coffee.png',
+    'assets/images/americano.png',
+    'assets/images/iced_mocha.png',
+    'assets/images/cappuccino.png',
+    'assets/images/matcha_latte.png',
+    'assets/images/thai_tea.png',
+  ];
+
+  int _currentImageIndex = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (mounted) {
+        setState(() {
+          _currentImageIndex = (_currentImageIndex + 1) % _bgImages.length;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
   void _onStartOrdering(BuildContext context) {
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder<void>(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const MainMenuScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 500),
-      ),
-    );
+    _timer?.cancel();
+    try {
+      context.go('/kiosk/menu');
+    } catch (_) {
+      Navigator.of(context).pushReplacementNamed('/kiosk/menu');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final locale = context.watch<LocaleProvider>();
+    final locale = Provider.of<LocaleProvider?>(context);
 
     return Scaffold(
       body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => _onStartOrdering(context),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // ── Background (placeholder — replace with video/image loop) ──
+            // ── Background Base Color ───────────────────────────────────
             Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    kGreen800,
-                    kCoffee900,
-                  ],
+              color: const Color(0xFF1A2B18),
+            ),
+
+            // ── Animated Background Crossfading Images ──────────────────
+            Positioned.fill(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 800),
+                layoutBuilder:
+                    (Widget? currentChild, List<Widget> previousChildren) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      ...previousChildren,
+                      ?currentChild,
+                    ],
+                  );
+                },
+                transitionBuilder:
+                    (Widget child, Animation<double> animation) {
+                  return FadeTransition(opacity: animation, child: child);
+                },
+                child: Image.asset(
+                  _bgImages[_currentImageIndex],
+                  key: ValueKey<int>(_currentImageIndex),
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
                 ),
               ),
             ),
 
-            // ── Foreground content ────────────────────────────────────────
+            // ── Dark Overlay (0xFF1A2B18 @ 0.72 opacity) ────────────────
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xFF1A2B18).withValues(alpha: 0.72),
+              ),
+            ),
+
+            // ── Foreground Content (Top Center) ─────────────────────────
             SafeArea(
-              child: Column(
-                children: [
-                  const Spacer(flex: 3),
-
-                  // Logo / brand
-                  Text(
-                    'ToTo Cafe',
-                    style: Theme.of(context)
-                        .textTheme
-                        .displayLarge
-                        ?.copyWith(color: kCream, fontSize: 48),
-                  ),
-                  const SizedBox(height: kSpace8),
-                  Text(
-                    'COFFEE & COMFORT',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: kGold,
-                          letterSpacing: 0.15 * 11,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 48),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // 1. Logo image (circular 260px, white border 3px, drop shadow)
+                      Container(
+                        width: 260,
+                        height: 260,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 3,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.25),
+                              blurRadius: 20,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                         ),
-                  ),
-
-                  const Spacer(flex: 2),
-
-                  // CTA button
-                  Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: kSpace48),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 64,
-                      child: ElevatedButton(
-                        onPressed: () => _onStartOrdering(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kColorPrimary,
-                          foregroundColor: kColorWhite,
-                          shape: const StadiumBorder(),
-                          textStyle: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(
-                                color: kColorWhite,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                        child: Text(
-                          locale.t('แตะเพื่อเริ่มสั่ง', 'Tap to start ordering'),
+                        child: ClipOval(
+                          child: Image(
+                            image:
+                                const AssetImage('assets/images/logo_toto.jpg'),
+                            width: 260,
+                            height: 260,
+                            fit: BoxFit.cover,
+                          ),
                         ),
                       ),
-                    ),
+
+                      // 2. Gap: 20px
+                      const SizedBox(height: 20),
+
+                      // 3. Text "ToTo's Cafe" — Google Fonts Playfair Display, 40px, bold, color #F5F1E4
+                      Text(
+                        "ToTo's Cafe",
+                        style: GoogleFonts.playfairDisplay(
+                          fontSize: 40,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFFF5F1E4),
+                        ),
+                      ),
+
+                      const SizedBox(height: 6),
+
+                      // 4. Text "COFFEE & COMFORT" — sans-serif, 12px, uppercase, letter-spacing 0.2em, color #C8B99A
+                      Text(
+                        'COFFEE & COMFORT',
+                        style: GoogleFonts.notoSansThai(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.2 * 12,
+                          color: const Color(0xFFC8B99A),
+                        ),
+                      ),
+
+                      // Gap: 8px
+                      const SizedBox(height: 8),
+
+                      // Text "แตะที่ใดก็ได้เพื่อเริ่มสั่ง"
+                      Text(
+                        locale?.t("แตะที่ใดก็ได้เพื่อเริ่มสั่ง",
+                                "Tap anywhere to start ordering") ??
+                            "แตะที่ใดก็ได้เพื่อเริ่มสั่ง",
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.white.withValues(alpha: 0.6),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
                   ),
-
-                  const SizedBox(height: kSpace48),
-
-                  const Spacer(),
-                ],
+                ),
               ),
             ),
 
@@ -120,74 +212,133 @@ class StandbyScreen extends StatelessWidget {
               ),
             ),
 
-            // ── QR Code — สมัครสมาชิก (มุมขวาล่าง) ──────────────────────
+            // ── Member QR Card (มุมขวาล่าง) ─────────────────────────────
             Positioned(
-              right: kSpace24,
-              bottom: kSpace24,
-              child: Container(
-                padding: const EdgeInsets.all(kSpace12),
-                decoration: BoxDecoration(
-                  color: kColorSurface,
-                  borderRadius: BorderRadius.circular(kRadiusCard),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // QR Code generating URL: https://liff.line.me/2011572383-l29PIrit
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: kColorWhite,
-                        borderRadius: BorderRadius.circular(kSpace8),
-                        border: Border.all(color: kColorBorder),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(kSpace8),
-                        child: QrImageView(
-                          data: 'https://liff.line.me/2011572383-l29PIrit',
-                          version: QrVersions.auto,
-                          size: 64,
-                          padding: const EdgeInsets.all(4),
-                          backgroundColor: Colors.white,
-                          eyeStyle: const QrEyeStyle(
-                            eyeShape: QrEyeShape.square,
-                            color: kCoffee900,
-                          ),
-                          dataModuleStyle: const QrDataModuleStyle(
-                            dataModuleShape: QrDataModuleShape.square,
-                            color: kCoffee900,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: kSpace12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          locale.t('สมัครสมาชิก', 'Register Member'),
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
-                              ?.copyWith(fontSize: 14),
-                        ),
-                        const SizedBox(height: kSpace4),
-                        Text(
-                          locale.t('สแกนเพื่อสะสมแต้ม', 'Scan to earn points'),
-                          style: Theme.of(context).textTheme.bodySmall,
+              right: 32,
+              bottom: 32,
+              child: SafeArea(
+                child: GestureDetector(
+                  onTap: () {},
+                  child: Container(
+                    width: 300,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F1E4),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 20,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
-                  ],
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Green top-accent bar: height 6px, full width, color #3F5F35
+                        Container(
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF3F5F35),
+                            borderRadius: BorderRadius.only(
+                              topLeft: Radius.circular(20),
+                              topRight: Radius.circular(20),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Row(
+                            children: [
+                              // QR Code widget 88x88px
+                              Container(
+                                width: 88,
+                                height: 88,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: const Color(0xFFE4DECC)),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: QrImageView(
+                                    data:
+                                        'https://liff.line.me/2011572383-l29PIrit',
+                                    version: QrVersions.auto,
+                                    size: 88,
+                                    padding: const EdgeInsets.all(4),
+                                    backgroundColor: Colors.white,
+                                    eyeStyle: const QrEyeStyle(
+                                      eyeShape: QrEyeShape.square,
+                                      color: Color(0xFF2E2118),
+                                    ),
+                                    dataModuleStyle:
+                                        const QrDataModuleStyle(
+                                      dataModuleShape:
+                                          QrDataModuleShape.square,
+                                      color: Color(0xFF2E2118),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      locale?.t(
+                                              'สมัครสมาชิก', 'Register Member') ??
+                                          'สมัครสมาชิก',
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF4A2F1E),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      locale?.t('แสกนเพื่อสะสมแต้ม',
+                                              'Scan to earn points') ??
+                                          'แสกนเพื่อสะสมแต้ม',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF8A8374),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF3F5F35),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        locale?.t('ฟรี! ไม่มีค่าใช้จ่าย',
+                                                'Free! No fee') ??
+                                            'ฟรี! ไม่มีค่าใช้จ่าย',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -197,3 +348,8 @@ class StandbyScreen extends StatelessWidget {
     );
   }
 }
+
+/// Alias for KioskWelcomePage
+typedef KioskWelcomePage = StandbyScreen;
+
+
