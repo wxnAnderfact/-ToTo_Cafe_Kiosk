@@ -1,6 +1,7 @@
 // ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:async';
 import 'dart:html' as html;
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -1646,74 +1647,113 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                               );
                             }
 
-                            return GridView.builder(
+                            return ListView.builder(
                               padding: const EdgeInsets.all(kSpace16),
-                              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 180,
-                                mainAxisSpacing: kSpace12,
-                                crossAxisSpacing: kSpace12,
-                                childAspectRatio: 0.85,
-                              ),
                               itemCount: items.length,
                               itemBuilder: (context, index) {
                                 final item = items[index];
-                                return Card(
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    onTap: () async {
-                                      final customized = await ItemCustomizationModal.show(
-                                        context,
-                                        menuItemId: item.id ?? '',
-                                        name: item.name,
-                                        price: item.price,
-                                        imagePath: item.imageUrl ?? 'assets/images/hot_coffee.png',
-                                        category: item.category,
-                                        description: item.description,
-                                      );
-                                      if (customized != null) {
-                                        _addItem(customized);
-                                      }
-                                    },
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(kSpace8),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                return Container(
+                                  height: 80,
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color.fromRGBO(0, 0, 0, 0.08),
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: InkWell(
+                                      onTap: () async {
+                                        final customized = await ItemCustomizationModal.show(
+                                          context,
+                                          menuItemId: item.id ?? '',
+                                          name: item.name,
+                                          price: item.price,
+                                          imagePath: item.imageUrl ?? 'assets/images/hot_coffee.png',
+                                          category: item.category,
+                                          description: item.description,
+                                        );
+                                        if (customized != null) {
+                                          _addItem(customized);
+                                        }
+                                      },
+                                      child: Row(
                                         children: [
-                                          Expanded(
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                color: kTan.withValues(alpha: 0.3),
-                                                borderRadius: BorderRadius.circular(kRadiusBadge),
-                                              ),
-                                              clipBehavior: Clip.antiAlias,
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(8),
+                                            child: SizedBox(
+                                              width: 80,
+                                              height: 80,
                                               child: (item.imageUrl != null && item.imageUrl!.isNotEmpty)
                                                   ? Image.asset(
                                                       item.imageUrl!,
                                                       fit: BoxFit.cover,
-                                                      width: double.infinity,
-                                                      height: double.infinity,
-                                                      errorBuilder: (context, error, stackTrace) =>
-                                                          const Icon(Icons.coffee, color: kCoffee500, size: 40),
+                                                      width: 80,
+                                                      height: 80,
+                                                      errorBuilder: (context, error, stackTrace) => Container(
+                                                        color: kTan.withValues(alpha: 0.3),
+                                                        child: const Icon(Icons.coffee, color: kCoffee500, size: 36),
+                                                      ),
                                                     )
-                                                  : const Icon(Icons.coffee, size: 40, color: kCoffee500),
+                                                  : Container(
+                                                      color: kTan.withValues(alpha: 0.3),
+                                                      child: const Icon(Icons.coffee, color: kCoffee500, size: 36),
+                                                    ),
                                             ),
                                           ),
-                                          const SizedBox(height: kSpace8),
-                                          Text(
-                                            item.name,
-                                            style: theme.textTheme.bodyMedium?.copyWith(
-                                              fontWeight: FontWeight.w600,
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Text(
+                                                  item.name,
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Color(0xFF3B2314),
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  '฿${item.price.toStringAsFixed(0)}',
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    color: Color(0xFF3D5A3E),
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                          Text(
-                                            '฿${item.price.toStringAsFixed(0)}',
-                                            style: theme.textTheme.bodySmall?.copyWith(
-                                              color: kColorPrimary,
-                                              fontWeight: FontWeight.bold,
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            width: 36,
+                                            height: 36,
+                                            decoration: const BoxDecoration(
+                                              color: Color(0xFF3D5A3E),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Center(
+                                              child: Icon(
+                                                Icons.add,
+                                                color: Colors.white,
+                                                size: 20,
+                                              ),
                                             ),
                                           ),
+                                          const SizedBox(width: 12),
                                         ],
                                       ),
                                     ),

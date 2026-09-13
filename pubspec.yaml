@@ -76,6 +76,7 @@ flutter:
     - assets/images/iced_mocha.png
     - assets/images/matcha_latte.png
     - assets/images/thai_tea.png
+    - assets/images/logo_toto.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
