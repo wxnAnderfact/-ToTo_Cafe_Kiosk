@@ -182,22 +182,37 @@ class _StandbyScreenState extends State<StandbyScreen> {
                           color: const Color(0xFFC8B99A),
                         ),
                       ),
-
-                      // Gap: 8px
-                      const SizedBox(height: 8),
-
-                      // Text "แตะที่ใดก็ได้เพื่อเริ่มสั่ง"
-                      Text(
-                        locale?.t("แตะที่ใดก็ได้เพื่อเริ่มสั่ง",
-                                "Tap anywhere to start ordering") ??
-                            "แตะที่ใดก็ได้เพื่อเริ่มสั่ง",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white.withValues(alpha: 0.6),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
                     ],
+                  ),
+                ),
+              ),
+            ),
+
+            // ── Center of Screen: "Tap anywhere to start ordering" ──────
+            IgnorePointer(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    locale?.t(
+                          "แตะที่ใดก็ได้เพื่อเริ่มสั่ง",
+                          "Tap anywhere to start ordering",
+                        ) ??
+                        "แตะที่ใดก็ได้เพื่อเริ่มสั่ง",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFFF5F1E4),
+                      letterSpacing: 1.2,
+                      shadows: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          blurRadius: 16,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
