@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:html' as html;
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -593,24 +594,68 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
             ),
             child: Row(
               children: [
-                Text('ToTo Cafe', style: theme.textTheme.headlineMedium),
-                const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: () => _showManualPointsDialog(context),
-                  icon: const Icon(Icons.stars, size: 18, color: kColorPrimary),
-                  label: Text(
-                    locale.t('เพิ่มแต้มสมาชิก (กรณีลืมที่ตู้)', 'Add Member Points'),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: kColorPrimary,
-                    side: const BorderSide(color: kColorPrimary),
-                    padding: const EdgeInsets.symmetric(horizontal: kSpace12, vertical: kSpace8),
+                // Logo + name
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF3F5F35), width: 2),
+                    image: const DecorationImage(
+                      image: AssetImage('assets/images/logo_toto.jpg'),
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
-                const SizedBox(width: kSpace8),
+                const SizedBox(width: 10),
+                Text(
+                  "ToTo's Cafe",
+                  style: GoogleFonts.playfairDisplay(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF4A2F1E),
+                  ),
+                ),
+                const Spacer(),
+
+                // "กำลังทำงาน" status pill — keep as-is but slightly smaller
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD6E8D0),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    locale.t('● กำลังทำงาน', '● On Shift'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF3F5F35),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // "เพิ่มแต้มสมาชิก" button — keep onPressed logic exactly as before
+                OutlinedButton.icon(
+                  onPressed: () => _showManualPointsDialog(context),
+                  icon: const Icon(Icons.stars, size: 16, color: Color(0xFF3F5F35)),
+                  label: Text(
+                    locale.t('เพิ่มแต้ม', 'Add Points'),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF3F5F35),
+                    side: const BorderSide(color: Color(0xFF3F5F35)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: Size.zero,
+                  ),
+                ),
+                const SizedBox(width: 6),
+
+                // Deduplicate icon button — keep onPressed logic exactly as before
                 IconButton(
-                  icon: const Icon(Icons.auto_fix_high, size: 20, color: kColorTextMuted),
-                  tooltip: locale.t('ลบเมนูที่ซ้ำในระบบ', 'Deduplicate menu items in Firestore'),
+                  icon: const Icon(Icons.auto_fix_high, size: 18, color: Color(0xFF8A8374)),
+                  tooltip: locale.t('ลบเมนูที่ซ้ำในระบบ', 'Deduplicate menu items'),
                   onPressed: () async {
                     try {
                       final deleted = await _menuService.deduplicateMenuItems();
@@ -620,9 +665,9 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                           content: Text(
                             deleted > 0
                                 ? 'ลบเมนูที่ซ้ำสำเร็จ: $deleted รายการ'
-                                : 'ไม่มีเมนูซ้ำในระบบ (No duplicates found)',
+                                : 'ไม่มีเมนูซ้ำในระบบ',
                           ),
-                          backgroundColor: kColorPrimary,
+                          backgroundColor: const Color(0xFF3F5F35),
                         ),
                       );
                     } catch (e) {
@@ -632,23 +677,10 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                       );
                     }
                   },
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  padding: EdgeInsets.zero,
                 ),
-                const SizedBox(width: kSpace12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: kSpace12,
-                    vertical: kSpace4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: kGreen100,
-                    borderRadius: BorderRadius.circular(kRadiusPill),
-                  ),
-                  child: Text(
-                    locale.t('● กำลังทำงาน', '● On Shift'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: kColorPrimary),
-                  ),
-                ),
-                const SizedBox(width: kSpace12),
+                const SizedBox(width: 6),
                 const LanguageToggle(),
               ],
             ),
@@ -695,7 +727,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                     crossAxisCount: 2,
                     crossAxisSpacing: kSpace12,
                     mainAxisSpacing: kSpace12,
-                    childAspectRatio: 1.1,
+                    childAspectRatio: 0.85,
                   ),
                   itemCount: popularItems.length,
                   itemBuilder: (context, index) {
@@ -903,43 +935,63 @@ class _QuickMenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(kRadiusCard),
-        child: Padding(
-          padding: const EdgeInsets.all(kSpace12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(kRadiusBadge),
-                child: (imageUrl != null && imageUrl!.isNotEmpty)
-                    ? Image.asset(
-                        imageUrl!,
-                        width: 44,
-                        height: 44,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const Icon(Icons.coffee, color: kCoffee500, size: 40),
-                      )
-                    : const Icon(Icons.coffee, color: kCoffee500, size: 40),
-              ),
-              const SizedBox(height: kSpace8),
-              Text(
-                name,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Image — top 60% of card
+            Expanded(
+              flex: 5,
+              child: (imageUrl != null && imageUrl!.isNotEmpty)
+                  ? Image.asset(
+                      imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        color: const Color(0xFFEDE8DA),
+                        child: const Icon(Icons.coffee, color: Color(0xFF5B3A29), size: 32),
+                      ),
+                    )
+                  : Container(
+                      color: const Color(0xFFEDE8DA),
+                      child: const Icon(Icons.coffee, color: Color(0xFF5B3A29), size: 32),
                     ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+            ),
+            // Info — bottom 40%
+            Expanded(
+              flex: 3,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF3A362E),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '฿${price.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF3F5F35),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              Text(
-                '฿${price.toStringAsFixed(0)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

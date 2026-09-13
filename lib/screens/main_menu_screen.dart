@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme.dart';
 import '../models/menu_item.dart' as model;
@@ -133,16 +134,35 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
         children: [
           // Header / logo area
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: kSpace16,
-              vertical: kSpace24,
-            ),
-            child: Text(
-              'ToTo Cafe',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineMedium
-                  ?.copyWith(fontSize: 18),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF3F5F35), width: 2),
+                    image: const DecorationImage(
+                      image: AssetImage('assets/images/logo_toto.jpg'),
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    "ToTo's Cafe",
+                    style: GoogleFonts.playfairDisplay(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF4A2F1E),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
 
@@ -296,7 +316,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                     maxCrossAxisExtent: 240,
                     mainAxisSpacing: kSpace16,
                     crossAxisSpacing: kSpace16,
-                    childAspectRatio: 0.65,
+                    childAspectRatio: 0.72,
                   ),
                   itemCount: items.length,
                   itemBuilder: (context, index) {
@@ -590,7 +610,7 @@ class _ProductCard extends StatelessWidget {
         children: [
           // Product image
           Expanded(
-            flex: 3,
+            flex: 5,
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(kRadiusCard),
