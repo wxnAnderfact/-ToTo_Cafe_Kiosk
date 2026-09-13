@@ -1100,9 +1100,17 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
   bool _isSubmitting = false;
   String? _submittingMethod;
 
+  String _counterMemberPhone = '';
+  Member? _counterMember;
+  bool _isSearchingMember = false;
+  bool _memberNotFound = false;
+  double _memberDiscount = 0.0;
+  int _redeemedPoints = 0;
+
   double get _subtotal => _posCart.fold<double>(0, (sum, i) => sum + i.lineTotal);
   double get _vat => calculateVat(_subtotal);
-  double get _total => calculateGrandTotal(_subtotal);
+  double get _grandTotalBeforeDiscount => calculateGrandTotal(_subtotal);
+  double get _finalTotal => (_grandTotalBeforeDiscount - _memberDiscount).clamp(0.0, double.infinity);
 
   void _addItem(OrderItem item) {
     setState(() {
@@ -1125,10 +1133,305 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
       final newQty = item.quantity + delta;
       if (newQty <= 0) {
         _posCart.removeAt(index);
+        if (_posCart.isEmpty) {
+          _memberDiscount = 0.0;
+          _redeemedPoints = 0;
+        }
       } else {
         _posCart[index] = item.copyWith(quantity: newQty);
       }
     });
+  }
+
+  Future<void> _onSearchCounterMember() async {
+    final phone = _counterMemberPhone.trim();
+    if (phone.isEmpty) return;
+
+    setState(() {
+      _isSearchingMember = true;
+      _memberNotFound = false;
+    });
+
+    try {
+      final member = await MemberService().getMemberByPhone(phone);
+      if (!mounted) return;
+      setState(() {
+        _isSearchingMember = false;
+        if (member != null) {
+          _counterMember = member;
+          _memberNotFound = false;
+        } else {
+          _counterMember = null;
+          _memberNotFound = true;
+          _memberDiscount = 0.0;
+          _redeemedPoints = 0;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSearchingMember = false;
+        _memberNotFound = true;
+        _counterMember = null;
+        _memberDiscount = 0.0;
+        _redeemedPoints = 0;
+      });
+    }
+  }
+
+  Widget _buildCounterNumpadDigitButton(String digit) {
+    return Material(
+      color: const Color(0xFF3D5A3E),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          if (_counterMemberPhone.length < 10) {
+            setState(() {
+              _counterMemberPhone += digit;
+              _memberNotFound = false;
+            });
+          }
+        },
+        child: Center(
+          child: Text(
+            digit,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCounterNumpadClearButton() {
+    return Material(
+      color: Colors.grey.shade400,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _counterMemberPhone = '';
+            _memberNotFound = false;
+            _counterMember = null;
+            _memberDiscount = 0.0;
+            _redeemedPoints = 0;
+          });
+        },
+        child: const Center(
+          child: Text(
+            'ล้าง',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCounterNumpadBackspaceButton() {
+    return Material(
+      color: Colors.grey.shade400,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          if (_counterMemberPhone.isNotEmpty) {
+            setState(() {
+              _counterMemberPhone = _counterMemberPhone.substring(
+                0,
+                _counterMemberPhone.length - 1,
+              );
+              _memberNotFound = false;
+            });
+          }
+        },
+        child: const Center(
+          child: Icon(
+            Icons.backspace_outlined,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCounterRedeemDialog(BuildContext context, Member member) async {
+    final locale = context.read<LocaleProvider>();
+    final maxRedeemablePoints = min(member.points, (_grandTotalBeforeDiscount * 100).toInt());
+
+    if (maxRedeemablePoints <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            locale.t(
+              'ไม่มีแต้มสะสมเพียงพอสำหรับใช้เป็นส่วนลด',
+              'Not enough points available for discount',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    int currentSelection = _redeemedPoints > 0
+        ? min(_redeemedPoints, maxRedeemablePoints)
+        : maxRedeemablePoints;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final discountValue = currentSelection / 100.0;
+            final totalAfter = (_grandTotalBeforeDiscount - discountValue).clamp(0.0, double.infinity);
+
+            return AlertDialog(
+              title: Row(
+                children: [
+                  const Icon(Icons.stars, color: kGold),
+                  const SizedBox(width: kSpace8),
+                  Text(locale.t('ใช้แต้มเป็นส่วนลด', 'Redeem Points for Discount')),
+                ],
+              ),
+              content: SizedBox(
+                width: 400,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${locale.t('แต้มสะสมทั้งหมด', 'Total points')}: ${member.points} ${locale.t('แต้ม', 'points')}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: kSpace4),
+                    Text(
+                      '${locale.t('สามารถใช้ได้สูงสุดสำหรับออร์เดอร์นี้', 'Max points for this order')}: $maxRedeemablePoints ${locale.t('แต้ม', 'points')}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: kColorTextMuted),
+                    ),
+                    const SizedBox(height: kSpace16),
+
+                    // Slider
+                    Slider(
+                      value: currentSelection.toDouble(),
+                      min: 0,
+                      max: maxRedeemablePoints.toDouble(),
+                      divisions: maxRedeemablePoints > 0 ? max(1, min(maxRedeemablePoints, 100)) : 1,
+                      label: '$currentSelection ${locale.t('แต้ม', 'pts')}',
+                      activeColor: kColorPrimary,
+                      onChanged: (val) {
+                        setDialogState(() {
+                          currentSelection = val.round();
+                        });
+                      },
+                    ),
+
+                    // Preset chips
+                    Wrap(
+                      spacing: kSpace8,
+                      runSpacing: kSpace4,
+                      children: [
+                        if (maxRedeemablePoints >= 50)
+                          ActionChip(
+                            label: const Text('50 แต้ม'),
+                            onPressed: () => setDialogState(() => currentSelection = 50),
+                          ),
+                        if (maxRedeemablePoints >= 100)
+                          ActionChip(
+                            label: const Text('100 แต้ม'),
+                            onPressed: () => setDialogState(() => currentSelection = 100),
+                          ),
+                        if (maxRedeemablePoints >= 200)
+                          ActionChip(
+                            label: const Text('200 แต้ม'),
+                            onPressed: () => setDialogState(() => currentSelection = 200),
+                          ),
+                        ActionChip(
+                          label: Text(locale.t('ใช้แต้มสูงสุด', 'Use Max')),
+                          onPressed: () => setDialogState(() => currentSelection = maxRedeemablePoints),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: kSpace16),
+                    const Divider(),
+                    const SizedBox(height: kSpace12),
+
+                    // Calculation Summary
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(locale.t('แต้มที่จะใช้', 'Points to redeem')),
+                        Text(
+                          '$currentSelection ${locale.t('แต้ม', 'points')}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: kSpace4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(locale.t('ส่วนลดที่จะได้รับ', 'Discount amount')),
+                        Text(
+                          '-฿${discountValue.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: kColorPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: kSpace4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(locale.t('ยอดรวมหลังหักส่วนลด', 'Total after discount')),
+                        Text(
+                          '฿${totalAfter.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(locale.t('ยกเลิก', 'Cancel')),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _redeemedPoints = currentSelection;
+                      _memberDiscount = currentSelection / 100.0;
+                    });
+                    Navigator.of(dialogContext).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kColorPrimary,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(locale.t('ยืนยัน', 'Apply')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _submitCashOrder() async {
@@ -1148,10 +1451,35 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
         queueNumber: queueNumber,
         subtotal: _subtotal,
         vat: _vat,
-        total: _total,
+        total: _finalTotal,
+        discount: _memberDiscount,
+        memberPhone: _counterMember != null && _counterMemberPhone.isNotEmpty
+            ? _counterMemberPhone
+            : null,
       );
 
       final created = await _orderService.createOrder(order);
+
+      // Redeem points if discount was applied
+      if (_counterMember != null && _redeemedPoints > 0) {
+        try {
+          await MemberService().redeemPoints(_counterMemberPhone, _redeemedPoints);
+        } catch (e) {
+          debugPrint('Error redeeming points for counter cash order: $e');
+        }
+      }
+
+      // Add points for purchase automatically
+      if (_counterMember != null && _counterMemberPhone.isNotEmpty) {
+        try {
+          await MemberService().addPointsForPurchase(
+            _counterMemberPhone,
+            _finalTotal.toInt(),
+          );
+        } catch (e) {
+          debugPrint('Error adding points for counter cash order: $e');
+        }
+      }
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -1205,10 +1533,35 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
         queueNumber: queueNumber,
         subtotal: _subtotal,
         vat: _vat,
-        total: _total,
+        total: _finalTotal,
+        discount: _memberDiscount,
+        memberPhone: _counterMember != null && _counterMemberPhone.isNotEmpty
+            ? _counterMemberPhone
+            : null,
       );
 
       final created = await _orderService.createOrder(order);
+
+      // Redeem points if discount was applied
+      if (_counterMember != null && _redeemedPoints > 0) {
+        try {
+          await MemberService().redeemPoints(_counterMemberPhone, _redeemedPoints);
+        } catch (e) {
+          debugPrint('Error redeeming points for counter QR order: $e');
+        }
+      }
+
+      // Add points for purchase automatically
+      if (_counterMember != null && _counterMemberPhone.isNotEmpty) {
+        try {
+          await MemberService().addPointsForPurchase(
+            _counterMemberPhone,
+            _finalTotal.toInt(),
+          );
+        } catch (e) {
+          debugPrint('Error adding points for counter QR order: $e');
+        }
+      }
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -1381,204 +1734,509 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                       child: Container(
                         color: kColorSurface,
                         padding: const EdgeInsets.all(kSpace16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '${locale.t('รายการในออร์เดอร์', 'Order Items')} (${_posCart.length})',
-                                  style: theme.textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.bold),
-                                ),
-                                if (_posCart.isNotEmpty)
-                                  TextButton(
-                                    onPressed: () => setState(() => _posCart.clear()),
-                                    child: Text(locale.t('ล้าง', 'Clear')),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '${locale.t('รายการในออร์เดอร์', 'Order Items')} (${_posCart.length})',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
                                   ),
-                              ],
-                            ),
-                            const Divider(),
+                                  if (_posCart.isNotEmpty)
+                                    TextButton(
+                                      onPressed: () => setState(() {
+                                        _posCart.clear();
+                                        _memberDiscount = 0.0;
+                                        _redeemedPoints = 0;
+                                      }),
+                                      child: Text(locale.t('ล้าง', 'Clear')),
+                                    ),
+                                ],
+                              ),
+                              const Divider(),
 
-                            // Cart items
-                            Expanded(
-                              child: _posCart.isEmpty
-                                  ? Center(
-                                      child: Text(
-                                        locale.t(
-                                          'แตะเมนูด้านซ้ายเพื่อเพิ่มรายการ',
-                                          'Tap menu on the left to add items',
+                              // Cart items
+                              if (_posCart.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: kSpace16),
+                                  child: Center(
+                                    child: Text(
+                                      locale.t(
+                                        'แตะเมนูด้านซ้ายเพื่อเพิ่มรายการ',
+                                        'Tap menu on the left to add items',
+                                      ),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: kColorTextMuted,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                ListView.separated(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: _posCart.length,
+                                  separatorBuilder: (context, _) => const Divider(height: 12),
+                                  itemBuilder: (context, index) {
+                                    final item = _posCart[index];
+                                    return Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(item.name,
+                                                  style: theme.textTheme.bodyMedium
+                                                      ?.copyWith(fontWeight: FontWeight.w600)),
+                                              Text(
+                                                '${item.sweetness.label} • ${item.milkType.label}',
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(color: kColorTextMuted),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                          color: kColorTextMuted,
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(Icons.remove_circle_outline,
+                                                  size: 20),
+                                              onPressed: () => _updateQuantity(index, -1),
+                                            ),
+                                            Text('${item.quantity}',
+                                                style: theme.textTheme.bodyMedium),
+                                            IconButton(
+                                              icon: const Icon(Icons.add_circle_outline,
+                                                  size: 20),
+                                              onPressed: () => _updateQuantity(index, 1),
+                                            ),
+                                          ],
+                                        ),
+                                        SizedBox(
+                                          width: 64,
+                                          child: Text(
+                                            '฿${item.lineTotal.toStringAsFixed(0)}',
+                                            textAlign: TextAlign.end,
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+
+                              const Divider(),
+                              const SizedBox(height: kSpace8),
+
+                              // ═══════════════════════════════════════════════════════════
+                              // SECTION: สมาชิก ToTo Cafe (ถ้ามี)
+                              // ═══════════════════════════════════════════════════════════
+                              Container(
+                                padding: const EdgeInsets.all(kSpace12),
+                                decoration: BoxDecoration(
+                                  color: kColorBg,
+                                  borderRadius: BorderRadius.circular(kRadiusCard),
+                                  border: Border.all(color: kColorBorder),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.loyalty_outlined, color: kColorPrimary, size: 20),
+                                        const SizedBox(width: kSpace8),
+                                        Text(
+                                          locale.t('สมาชิก ToTo Cafe (ถ้ามี)', 'ToTo Cafe Member (Optional)'),
+                                          style: theme.textTheme.titleSmall?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: kColorTextHeading,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: kSpace8),
+
+                                    // 1. Display box showing _counterMemberPhone
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                      decoration: BoxDecoration(
+                                        color: kColorSurface,
+                                        borderRadius: BorderRadius.circular(kRadiusCard),
+                                        border: Border.all(color: kColorBorder),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          _counterMemberPhone.isEmpty ? '- - - - - - - -' : _counterMemberPhone,
+                                          style: const TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 3,
+                                            color: Color(0xFF3D5A3E),
+                                          ),
                                         ),
                                       ),
-                                    )
-                                  : ListView.separated(
-                                      itemCount: _posCart.length,
-                                      separatorBuilder: (context, _) => const Divider(height: 12),
-                                      itemBuilder: (context, index) {
-                                        final item = _posCart[index];
-                                        return Row(
+                                    ),
+                                    const SizedBox(height: kSpace12),
+
+                                    // 2. 3x4 On-Screen Numpad
+                                    Center(
+                                      child: SizedBox(
+                                        width: 192,
+                                        height: 254,
+                                        child: GridView.count(
+                                          crossAxisCount: 3,
+                                          mainAxisSpacing: 10,
+                                          crossAxisSpacing: 12,
+                                          physics: const NeverScrollableScrollPhysics(),
                                           children: [
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                            _buildCounterNumpadDigitButton('1'),
+                                            _buildCounterNumpadDigitButton('2'),
+                                            _buildCounterNumpadDigitButton('3'),
+                                            _buildCounterNumpadDigitButton('4'),
+                                            _buildCounterNumpadDigitButton('5'),
+                                            _buildCounterNumpadDigitButton('6'),
+                                            _buildCounterNumpadDigitButton('7'),
+                                            _buildCounterNumpadDigitButton('8'),
+                                            _buildCounterNumpadDigitButton('9'),
+                                            _buildCounterNumpadClearButton(),
+                                            _buildCounterNumpadDigitButton('0'),
+                                            _buildCounterNumpadBackspaceButton(),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: kSpace12),
+
+                                    // 3. Full-width "ค้นหา" Button
+                                    SizedBox(
+                                      width: double.infinity,
+                                      height: 40,
+                                      child: ElevatedButton(
+                                        onPressed: _isSearchingMember ? null : _onSearchCounterMember,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF3D5A3E),
+                                          foregroundColor: Colors.white,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(kRadiusCard),
+                                          ),
+                                        ),
+                                        child: _isSearchingMember
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : Text(
+                                                locale.t('ค้นหา', 'Search'),
+                                                style: const TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+
+                                    // 5. When not found
+                                    if (_memberNotFound) ...[
+                                      const SizedBox(height: kSpace8),
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.info_outline, size: 14, color: kColorTextMuted),
+                                          const SizedBox(width: kSpace4),
+                                          Text(
+                                            locale.t('ไม่พบเบอร์นี้ในระบบ', 'No member found with this phone number'),
+                                            style: theme.textTheme.bodySmall?.copyWith(color: kColorTextMuted),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+
+                                    // 4. When member found: show card with name + current points + redeem button
+                                    if (_counterMember != null) ...[
+                                      const SizedBox(height: kSpace12),
+                                      Container(
+                                        padding: const EdgeInsets.all(kSpace12),
+                                        decoration: BoxDecoration(
+                                          color: kColorSurface,
+                                          borderRadius: BorderRadius.circular(kRadiusCard),
+                                          border: Border.all(color: kColorPrimary.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                CircleAvatar(
+                                                  radius: 18,
+                                                  backgroundColor: kGreen100,
+                                                  child: const Icon(Icons.person, color: kColorPrimary, size: 20),
+                                                ),
+                                                const SizedBox(width: kSpace8),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        (_counterMember!.displayName != null &&
+                                                                _counterMember!.displayName!.isNotEmpty)
+                                                            ? _counterMember!.displayName!
+                                                            : 'สมาชิก (${_counterMember!.phone})',
+                                                        style: theme.textTheme.titleSmall?.copyWith(
+                                                          fontWeight: FontWeight.bold,
+                                                          color: kColorTextHeading,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        _counterMember!.phone,
+                                                        style: theme.textTheme.bodySmall
+                                                            ?.copyWith(color: kColorTextMuted),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _counterMember = null;
+                                                      _counterMemberPhone = '';
+                                                      _memberDiscount = 0.0;
+                                                      _redeemedPoints = 0;
+                                                    });
+                                                  },
+                                                  style: TextButton.styleFrom(
+                                                    foregroundColor: kColorTextMuted,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                                  ),
+                                                  child: Text(locale.t('เปลี่ยน', 'Change')),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: kSpace8),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: kSpace8, vertical: kSpace4),
+                                              decoration: BoxDecoration(
+                                                color: kGreen100.withValues(alpha: 0.5),
+                                                borderRadius: BorderRadius.circular(kRadiusCard),
+                                              ),
+                                              child: Row(
                                                 children: [
-                                                  Text(item.name,
-                                                      style: theme.textTheme.bodyMedium
-                                                          ?.copyWith(fontWeight: FontWeight.w600)),
-                                                  Text(
-                                                    '${item.sweetness.label} • ${item.milkType.label}',
-                                                    style: theme.textTheme.bodySmall
-                                                        ?.copyWith(color: kColorTextMuted),
+                                                  const Icon(Icons.stars, color: kGold, size: 16),
+                                                  const SizedBox(width: kSpace4),
+                                                  Expanded(
+                                                    child: Text(
+                                                      '${locale.t('คุณมี', 'You have')} ${_counterMember!.points} ${locale.t('แต้ม', 'points')} (${locale.t('มูลค่า', 'value')} ${(_counterMember!.points / 100).toStringAsFixed(2)} ${locale.t('บาท', 'baht')})',
+                                                      style: theme.textTheme.bodySmall?.copyWith(
+                                                        color: kColorPrimary,
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                    ),
                                                   ),
                                                 ],
                                               ),
                                             ),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                IconButton(
-                                                  icon: const Icon(Icons.remove_circle_outline,
-                                                      size: 20),
-                                                  onPressed: () => _updateQuantity(index, -1),
-                                                ),
-                                                Text('${item.quantity}',
-                                                    style: theme.textTheme.bodyMedium),
-                                                IconButton(
-                                                  icon: const Icon(Icons.add_circle_outline,
-                                                      size: 20),
-                                                  onPressed: () => _updateQuantity(index, 1),
-                                                ),
-                                              ],
-                                            ),
+                                            if (_memberDiscount > 0) ...[
+                                              const SizedBox(height: kSpace8),
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Text(
+                                                    '${locale.t('ใช้ส่วนลด', 'Discount')}: -฿${_memberDiscount.toStringAsFixed(2)} ($_redeemedPoints ${locale.t('แต้ม', 'pts')})',
+                                                    style: theme.textTheme.bodySmall?.copyWith(
+                                                      color: kColorPrimary,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        _memberDiscount = 0.0;
+                                                        _redeemedPoints = 0;
+                                                      });
+                                                    },
+                                                    style: TextButton.styleFrom(
+                                                      foregroundColor: Colors.red.shade700,
+                                                      padding: EdgeInsets.zero,
+                                                      minimumSize: const Size(40, 24),
+                                                    ),
+                                                    child: Text(locale.t('ยกเลิก', 'Remove')),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                            const SizedBox(height: kSpace8),
                                             SizedBox(
-                                              width: 64,
-                                              child: Text(
-                                                '฿${item.lineTotal.toStringAsFixed(0)}',
-                                                textAlign: TextAlign.end,
-                                                style: theme.textTheme.bodyMedium
-                                                    ?.copyWith(fontWeight: FontWeight.bold),
+                                              width: double.infinity,
+                                              height: 36,
+                                              child: OutlinedButton.icon(
+                                                onPressed: () =>
+                                                    _showCounterRedeemDialog(context, _counterMember!),
+                                                icon: const Icon(Icons.redeem, size: 16),
+                                                label: Text(
+                                                  _memberDiscount > 0
+                                                      ? locale.t('แก้ไขแต้มส่วนลด', 'Edit Discount')
+                                                      : locale.t(
+                                                          'ใช้แต้มเป็นส่วนลด', 'Redeem Points for Discount'),
+                                                  style: const TextStyle(fontSize: 13),
+                                                ),
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: kColorPrimary,
+                                                  side: const BorderSide(color: kColorPrimary),
+                                                ),
                                               ),
                                             ),
                                           ],
-                                        );
-                                      },
-                                    ),
-                            ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
 
-                            const Divider(),
-                            // Subtotal, VAT, Total
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(locale.t('ราคาก่อนภาษี:', 'Subtotal:'), style: theme.textTheme.bodySmall),
-                                Text('฿${_subtotal.toStringAsFixed(2)}',
-                                    style: theme.textTheme.bodySmall),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('VAT 7%:', style: theme.textTheme.bodySmall),
-                                Text('฿${_vat.toStringAsFixed(2)}',
-                                    style: theme.textTheme.bodySmall),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  locale.t('ยอดสุทธิ:', 'Grand Total:'),
-                                  style: theme.textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.bold),
-                                ),
-                                Text(
-                                  '฿${_total.toStringAsFixed(2)}',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: kColorPrimary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: kSpace16),
+                              const SizedBox(height: kSpace12),
+                              const Divider(),
+                              const SizedBox(height: kSpace4),
 
-                            // Pay with Cash or QR PromptPay
-                            Row(
-                              children: [
-                                // Button 1 — Cash
-                                Expanded(
-                                  child: SizedBox(
-                                    height: 48,
-                                    child: ElevatedButton.icon(
-                                      onPressed: _posCart.isEmpty || _isSubmitting
-                                          ? null
-                                          : _submitCashOrder,
-                                      icon: _isSubmitting && _submittingMethod == 'cash'
-                                          ? const SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: Colors.white,
-                                              ),
-                                            )
-                                          : const Icon(Icons.payments_outlined),
-                                      label: Text(
-                                        _isSubmitting && _submittingMethod == 'cash'
-                                            ? locale.t('กำลังบันทึก...', 'Saving...')
-                                            : '${locale.t('ชำระเงินสด', 'Pay with Cash')} (฿${_total.toStringAsFixed(2)})',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: kColorSecondary,
-                                        foregroundColor: kColorWhite,
+                              // Subtotal, VAT, Member Discount, Total
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(locale.t('ราคาก่อนภาษี:', 'Subtotal:'), style: theme.textTheme.bodySmall),
+                                  Text('฿${_subtotal.toStringAsFixed(2)}', style: theme.textTheme.bodySmall),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('VAT 7%:', style: theme.textTheme.bodySmall),
+                                  Text('฿${_vat.toStringAsFixed(2)}', style: theme.textTheme.bodySmall),
+                                ],
+                              ),
+                              if (_memberDiscount > 0) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      locale.t('ส่วนลดสมาชิก:', 'Member Discount:'),
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: kColorPrimary,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(width: kSpace12),
-                                // Button 2 — QR PromptPay
-                                Expanded(
-                                  child: SizedBox(
-                                    height: 48,
-                                    child: ElevatedButton.icon(
-                                      onPressed: _posCart.isEmpty || _isSubmitting
-                                          ? null
-                                          : _submitQrOrder,
-                                      icon: _isSubmitting && _submittingMethod == 'qr'
-                                          ? const SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: Colors.white,
-                                              ),
-                                            )
-                                          : const Icon(Icons.qr_code_2),
-                                      label: Text(
-                                        _isSubmitting && _submittingMethod == 'qr'
-                                            ? locale.t('กำลังบันทึก...', 'Saving...')
-                                            : '${locale.t('จ่ายด้วย QR', 'Pay with QR')} (฿${_total.toStringAsFixed(2)})',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: kColorPrimary,
-                                        foregroundColor: kColorWhite,
+                                    Text(
+                                      '-฿${_memberDiscount.toStringAsFixed(2)}',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: kColorPrimary,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ),
                               ],
-                            ),
-                          ],
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    locale.t('ยอดสุทธิ:', 'Grand Total:'),
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  ),
+                                  Text(
+                                    '฿${_finalTotal.toStringAsFixed(2)}',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: kColorPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: kSpace16),
+
+                              // Pay with Cash or QR PromptPay
+                              Row(
+                                children: [
+                                  // Button 1 — Cash
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 48,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _posCart.isEmpty || _isSubmitting
+                                            ? null
+                                            : _submitCashOrder,
+                                        icon: _isSubmitting && _submittingMethod == 'cash'
+                                            ? const SizedBox(
+                                                width: 20,
+                                                height: 20,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : const Icon(Icons.payments_outlined),
+                                        label: Text(
+                                          _isSubmitting && _submittingMethod == 'cash'
+                                              ? locale.t('กำลังบันทึก...', 'Saving...')
+                                              : '${locale.t('ชำระเงินสด', 'Pay with Cash')} (฿${_finalTotal.toStringAsFixed(2)})',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: kColorSecondary,
+                                          foregroundColor: kColorWhite,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: kSpace12),
+                                  // Button 2 — QR PromptPay
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 48,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _posCart.isEmpty || _isSubmitting
+                                            ? null
+                                            : _submitQrOrder,
+                                        icon: _isSubmitting && _submittingMethod == 'qr'
+                                            ? const SizedBox(
+                                                width: 20,
+                                                height: 20,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : const Icon(Icons.qr_code_2),
+                                        label: Text(
+                                          _isSubmitting && _submittingMethod == 'qr'
+                                              ? locale.t('กำลังบันทึก...', 'Saving...')
+                                              : '${locale.t('จ่ายด้วย QR', 'Pay with QR')} (฿${_finalTotal.toStringAsFixed(2)})',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: kColorPrimary,
+                                          foregroundColor: kColorWhite,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

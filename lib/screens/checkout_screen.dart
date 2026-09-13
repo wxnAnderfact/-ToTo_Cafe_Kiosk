@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/member.dart';
 import '../models/order.dart';
@@ -28,7 +27,7 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  final TextEditingController _phoneController = TextEditingController();
+  String _memberPhone = '';
   final MemberService _memberService = MemberService();
   bool _isSearching = false;
   bool _memberNotFound = false;
@@ -38,14 +37,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     super.initState();
     final cart = context.read<CartProvider>();
     if (cart.memberPhone != null && cart.memberPhone!.isNotEmpty) {
-      _phoneController.text = cart.memberPhone!;
+      _memberPhone = cart.memberPhone!;
     }
-  }
-
-  @override
-  void dispose() {
-    _phoneController.dispose();
-    super.dispose();
   }
 
   void _onBackToMenu(BuildContext context) {
@@ -53,7 +46,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _onSearchMember() async {
-    final phone = _phoneController.text.trim();
+    final phone = _memberPhone.trim();
     if (phone.isEmpty) return;
 
     setState(() {
@@ -86,6 +79,85 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         _memberNotFound = true;
       });
     }
+  }
+
+  Widget _buildNumpadDigitButton(String digit) {
+    return Material(
+      color: const Color(0xFF3D5A3E),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          if (_memberPhone.length < 10) {
+            setState(() {
+              _memberPhone += digit;
+              _memberNotFound = false;
+            });
+          }
+        },
+        child: Center(
+          child: Text(
+            digit,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNumpadClearButton() {
+    return Material(
+      color: Colors.grey.shade400,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _memberPhone = '';
+            _memberNotFound = false;
+          });
+        },
+        child: const Center(
+          child: Text(
+            'ล้าง',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNumpadBackspaceButton() {
+    return Material(
+      color: Colors.grey.shade400,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          if (_memberPhone.isNotEmpty) {
+            setState(() {
+              _memberPhone = _memberPhone.substring(0, _memberPhone.length - 1);
+              _memberNotFound = false;
+            });
+          }
+        },
+        child: const Center(
+          child: Icon(
+            Icons.backspace_outlined,
+            color: Colors.white,
+            size: 24,
+          ),
+        ),
+      ),
+    );
   }
 
   void _onPayWithQR(BuildContext context) {
@@ -517,7 +589,108 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                   const SizedBox(height: kSpace12),
 
+                  // 1. Display row showing the entered digits
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: kColorSurface,
+                      borderRadius: BorderRadius.circular(kRadiusCard),
+                      border: Border.all(color: kColorBorder),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _memberPhone.isEmpty ? '- - - - - - - - - -' : _memberPhone,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 4,
+                          color: Color(0xFF3D5A3E),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: kSpace16),
+
+                  // 2. 3x4 Grid numpad using GridView
+                  Center(
+                    child: SizedBox(
+                      width: 224,
+                      height: 292,
+                      child: GridView.count(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 16,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          _buildNumpadDigitButton('1'),
+                          _buildNumpadDigitButton('2'),
+                          _buildNumpadDigitButton('3'),
+                          _buildNumpadDigitButton('4'),
+                          _buildNumpadDigitButton('5'),
+                          _buildNumpadDigitButton('6'),
+                          _buildNumpadDigitButton('7'),
+                          _buildNumpadDigitButton('8'),
+                          _buildNumpadDigitButton('9'),
+                          _buildNumpadClearButton(),
+                          _buildNumpadDigitButton('0'),
+                          _buildNumpadBackspaceButton(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: kSpace16),
+
+                  // 3. Full-width "ค้นหา" (Search) button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _isSearching ? null : _onSearchMember,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3D5A3E),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(kRadiusCard),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                      ),
+                      child: _isSearching
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: kColorWhite,
+                              ),
+                            )
+                          : Text(
+                              locale.t('ค้นหา', 'Search'),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                    ),
+                  ),
+
+                  // 4. Member search result display logic
+                  if (_memberNotFound) ...[
+                    const SizedBox(height: kSpace8),
+                    Row(
+                      children: [
+                        const Icon(Icons.info_outline, size: 16, color: kColorTextMuted),
+                        const SizedBox(width: kSpace8),
+                        Text(
+                          locale.t('ไม่พบเบอร์นี้ในระบบสมาชิก', 'No member found with this phone number'),
+                          style: theme.textTheme.bodySmall?.copyWith(color: kColorTextMuted),
+                        ),
+                      ],
+                    ),
+                  ],
+
                   if (member != null) ...[
+                    const SizedBox(height: kSpace16),
                     // Confirmation Card
                     Container(
                       padding: const EdgeInsets.all(kSpace16),
@@ -561,7 +734,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               TextButton(
                                 onPressed: () {
                                   cart.setMember(null);
-                                  _phoneController.clear();
+                                  setState(() {
+                                    _memberPhone = '';
+                                  });
                                 },
                                 style: TextButton.styleFrom(
                                   foregroundColor: kColorTextMuted,
@@ -647,65 +822,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ],
                       ),
                     ),
-                  ] else ...[
-                    // Phone entry + Search
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _phoneController,
-                            keyboardType: TextInputType.number,
-                            maxLength: 10,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            decoration: InputDecoration(
-                              labelText: locale.t('เบอร์โทรศัพท์สมาชิก', 'Member Phone Number'),
-                              hintText: '08XXXXXXXX',
-                              prefixIcon: const Icon(Icons.phone, size: 20),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                              counterText: '',
-                            ),
-                            onSubmitted: (_) => _onSearchMember(),
-                          ),
-                        ),
-                        const SizedBox(width: kSpace8),
-                        SizedBox(
-                          height: 48,
-                          child: ElevatedButton(
-                            onPressed: _isSearching ? null : _onSearchMember,
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                            ),
-                            child: _isSearching
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: kColorWhite,
-                                    ),
-                                  )
-                                : Text(locale.t('ค้นหา', 'Search')),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    if (_memberNotFound) ...[
-                      const SizedBox(height: kSpace8),
-                      Row(
-                        children: [
-                          const Icon(Icons.info_outline, size: 16, color: kColorTextMuted),
-                          const SizedBox(width: kSpace8),
-                          Text(
-                            locale.t('ไม่พบเบอร์นี้ในระบบสมาชิก', 'No member found with this phone number'),
-                            style: theme.textTheme.bodySmall?.copyWith(color: kColorTextMuted),
-                          ),
-                        ],
-                      ),
-                    ],
                   ],
                 ],
               ),
