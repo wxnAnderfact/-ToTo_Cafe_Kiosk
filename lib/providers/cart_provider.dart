@@ -77,11 +77,12 @@ class CartProvider extends ChangeNotifier {
     );
 
     if (existingIndex >= 0) {
+      final newQty = (_items[existingIndex].quantity + item.quantity).clamp(1, 99);
       _items[existingIndex] = _items[existingIndex].copyWith(
-        quantity: _items[existingIndex].quantity + item.quantity,
+        quantity: newQty,
       );
     } else {
-      _items.add(item);
+      _items.add(item.copyWith(quantity: item.quantity.clamp(1, 99)));
     }
     notifyListeners();
   }
@@ -96,21 +97,22 @@ class CartProvider extends ChangeNotifier {
 
   /// Update the quantity of the item at [index].
   ///
-  /// If [newQuantity] is ≤ 0, the item is removed.
+  /// If [newQuantity] is ≤ 0, the item is removed. Maximum is 99.
   void updateQuantity(int index, int newQuantity) {
     if (index < 0 || index >= _items.length) return;
 
     if (newQuantity <= 0) {
       _items.removeAt(index);
     } else {
-      _items[index] = _items[index].copyWith(quantity: newQuantity);
+      _items[index] = _items[index].copyWith(quantity: newQuantity.clamp(1, 99));
     }
     notifyListeners();
   }
 
-  /// Increment the quantity of the item at [index] by 1.
+  /// Increment the quantity of the item at [index] by 1 (max 99).
   void incrementQuantity(int index) {
     if (index >= 0 && index < _items.length) {
+      if (_items[index].quantity >= 99) return;
       _items[index] = _items[index].copyWith(
         quantity: _items[index].quantity + 1,
       );
@@ -143,10 +145,10 @@ class CartProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Apply points discount. Rate: 100 points = 1 baht (pointsToRedeem / 100).
+  /// Apply points discount. Rate: 1 point = 1 baht (1 point = 1 THB).
   void applyDiscount(int pointsToRedeem) {
     _redeemedPoints = pointsToRedeem;
-    _discount = pointsToRedeem / 100.0;
+    _discount = pointsToRedeem.toDouble();
     notifyListeners();
   }
 

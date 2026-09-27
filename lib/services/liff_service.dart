@@ -43,39 +43,32 @@ class LiffService {
       final liff = js.context['liff'] as dart_js.JsObject;
       final initObj = js.JsObject.jsify({
         'liffId': liffId,
+        'withLoginOnExternalBrowser': true,
       });
 
-      // Call liff.init with callbacks and handle the returned Promise
-      final res = liff.callMethod('init', [
-        initObj,
-        js.allowInterop((_) {
-          if (!completer.isCompleted) {
-            _isInitialized = true;
-            completer.complete();
-          }
-        }),
-        js.allowInterop((e) {
-          if (!completer.isCompleted) {
-            completer.completeError(e ?? 'LIFF initialization failed');
-          }
-        }),
-      ]);
+      // In LIFF v2, init takes only the config object and returns a Promise
+      final res = liff.callMethod('init', [initObj]);
 
-      // In LIFF v2, init returns a Promise:
       if (res is dart_js.JsObject && res.hasProperty('then')) {
         res.callMethod('then', [
           js.allowInterop((_) {
+            _isInitialized = true;
+            debugPrint('LiffService: LIFF initialized successfully.');
             if (!completer.isCompleted) {
-              _isInitialized = true;
               completer.complete();
             }
           }),
-          js.allowInterop((e) {
-            if (!completer.isCompleted) {
-              completer.completeError(e ?? 'LIFF init promise rejected');
-            }
-          }),
         ]);
+        if (res.hasProperty('catch')) {
+          res.callMethod('catch', [
+            js.allowInterop((e) {
+              debugPrint('LiffService: LIFF init rejected: $e');
+              if (!completer.isCompleted) {
+                completer.completeError(e ?? 'LIFF init promise rejected');
+              }
+            }),
+          ]);
+        }
       } else {
         _isInitialized = true;
         if (!completer.isCompleted) {
@@ -142,26 +135,43 @@ class LiffService {
 
         if (profilePromise is dart_js.JsObject && profilePromise.hasProperty('then')) {
           profilePromise.callMethod('then', [
-            js.allowInterop((profile) {
-              if (!completer.isCompleted) {
-                completer.complete({
-                  'userId': (profile['userId'] ?? '').toString(),
-                  'displayName': (profile['displayName'] ?? '').toString(),
-                  'pictureUrl': (profile['pictureUrl'] ?? '').toString(),
-                });
+            js.allowInterop((dynamic profile) {
+              String uid = '';
+              String name = '';
+              String pic = '';
+              try {
+                if (profile != null) {
+                  uid = (profile['userId'] ?? '').toString();
+                  name = (profile['displayName'] ?? '').toString();
+                  pic = (profile['pictureUrl'] ?? '').toString();
+                }
+              } catch (e) {
+                debugPrint('LiffService.getProfile read error: $e');
               }
-            }),
-            js.allowInterop((error) {
-              debugPrint('LiffService.getProfile error: $error');
+              debugPrint('LiffService.getProfile success: userId=$uid, name=$name');
               if (!completer.isCompleted) {
                 completer.complete({
-                  'userId': '',
-                  'displayName': '',
-                  'pictureUrl': '',
+                  'userId': uid,
+                  'displayName': name,
+                  'pictureUrl': pic,
                 });
               }
             }),
           ]);
+          if (profilePromise.hasProperty('catch')) {
+            profilePromise.callMethod('catch', [
+              js.allowInterop((error) {
+                debugPrint('LiffService.getProfile error: $error');
+                if (!completer.isCompleted) {
+                  completer.complete({
+                    'userId': '',
+                    'displayName': '',
+                    'pictureUrl': '',
+                  });
+                }
+              }),
+            ]);
+          }
           return await completer.future;
         }
       }

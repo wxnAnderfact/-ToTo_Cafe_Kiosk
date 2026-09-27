@@ -1,6 +1,5 @@
 // ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:async';
-import 'dart:html' as html;
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -88,12 +87,87 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
     super.dispose();
   }
 
-  Future<void> _showReceiptDialog(BuildContext context, Order order) async {
+  Future<void> _showReceiptDialog(
+    BuildContext context,
+    Order order, {
+    double? receivedAmount,
+    double? changeAmount,
+  }) async {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _ReceiptDialog(order: order),
+      builder: (context) => _ReceiptDialog(
+        order: order,
+        receivedAmount: receivedAmount,
+        changeAmount: changeAmount,
+      ),
     );
+  }
+
+  Future<void> _handleCashPaymentApproval(
+    BuildContext context,
+    Order order, {
+    bool isAlreadyApproved = false,
+  }) async {
+    final result = await showDialog<Map<String, double>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _CashPaymentDialog(order: order),
+    );
+
+    if (result == null && !isAlreadyApproved) return;
+
+    final receivedAmount = result?['received'] ?? order.total;
+    final changeAmount = result?['change'] ?? (receivedAmount - order.total);
+
+    if (order.id != null) {
+      if (!isAlreadyApproved) {
+        await _orderService.approveCashOrder(
+          order.id!,
+          receivedAmount: receivedAmount,
+          changeAmount: changeAmount,
+        );
+
+        if (order.memberPhone != null && order.memberPhone!.isNotEmpty) {
+          if (order.redeemedPoints > 0) {
+            try {
+              await MemberService().redeemPoints(order.memberPhone!, order.redeemedPoints);
+            } catch (e) {
+              debugPrint('[POS] Error redeeming points: $e');
+            }
+          }
+          final earned = order.pointsEarned > 0 ? order.pointsEarned : (order.total / 20).floor();
+          if (earned > 0) {
+            try {
+              await MemberService().addPoints(order.memberPhone!, earned);
+            } catch (e) {
+              debugPrint('[POS] Error adding points: $e');
+            }
+          }
+        }
+      } else {
+        await _orderService.approveCashOrder(
+          order.id!,
+          receivedAmount: receivedAmount,
+          changeAmount: changeAmount,
+        );
+      }
+    }
+
+    final updatedOrder = order.copyWith(
+      receivedAmount: receivedAmount,
+      changeAmount: changeAmount,
+      status: OrderStatus.paid,
+    );
+
+    if (context.mounted) {
+      await _showReceiptDialog(
+        context,
+        updatedOrder,
+        receivedAmount: receivedAmount,
+        changeAmount: changeAmount,
+      );
+    }
   }
 
   void _openNewCounterOrder(BuildContext context) {
@@ -105,7 +179,7 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
           _showCounterQrBottomSheet(context, created);
         },
         onCashOrderCreated: (created) async {
-          await _showReceiptDialog(context, created);
+          await _handleCashPaymentApproval(context, created, isAlreadyApproved: true);
           if (context.mounted) {
             final locale = context.read<LocaleProvider>();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -331,6 +405,54 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                       ),
                     ],
                   ),
+                  if (order.receivedAmount != null) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${locale.t('รับเงินสด', 'Cash Received')}:',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '฿${order.receivedAmount!.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${locale.t('เงินทอน', 'Change')}:',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2E7D32),
+                          ),
+                        ),
+                        Text(
+                          '฿${(order.changeAmount ?? (order.receivedAmount! - order.total)).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2E7D32),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: kSpace16),
                   Center(
                     child: Text(
@@ -491,6 +613,23 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                       onPressed: () async {
                         if (order.id != null) {
                           await _orderService.approveOrder(order.id!);
+                          if (order.memberPhone != null && order.memberPhone!.isNotEmpty) {
+                            if (order.redeemedPoints > 0) {
+                              try {
+                                await MemberService().redeemPoints(order.memberPhone!, order.redeemedPoints);
+                              } catch (e) {
+                                debugPrint('[POS] Error redeeming points: $e');
+                              }
+                            }
+                            final earned = order.pointsEarned > 0 ? order.pointsEarned : (order.total / 20).floor();
+                            if (earned > 0) {
+                              try {
+                                await MemberService().addPoints(order.memberPhone!, earned);
+                              } catch (e) {
+                                debugPrint('[POS] Error adding points: $e');
+                              }
+                            }
+                          }
                         }
                         if (bottomSheetContext.mounted) {
                           Navigator.of(bottomSheetContext).pop();
@@ -850,37 +989,65 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   separatorBuilder: (context, _) => const SizedBox(height: kSpace12),
                   itemBuilder: (context, index) {
                     final order = orders[index];
+                    final String statusText;
+                    if (order.paymentMethod == PaymentMethod.qr) {
+                      if (order.status == OrderStatus.awaitingApproval) {
+                        statusText = locale.t('ลูกค้าแจ้งโอนแล้ว (ตรวจสลิป)', 'Transfer Confirmed (Verify Slip)');
+                      } else {
+                        statusText = locale.t('รอลูกค้าโอนเงิน (สแกน QR)', 'Awaiting Transfer (Scanning QR)');
+                      }
+                    } else {
+                      statusText = locale.t('รอรับเงินสด', 'Pending Cash');
+                    }
+
                     return _OrderCard(
                       queueNumber: order.queueNumber.toString().padLeft(3, '0'),
-                      status: order.paymentMethod == PaymentMethod.qr
-                          ? locale.t('รอยืนยัน QR', 'Pending QR Approval')
-                          : locale.t('รอรับเงินสด', 'Pending Cash'),
+                      status: statusText,
                       paymentMethod: order.paymentMethod,
+                      orderStatus: order.status,
+                      items: order.items,
                       total: order.total,
                       onApprove: () async {
+                        if (order.paymentMethod == PaymentMethod.cash) {
+                          await _handleCashPaymentApproval(context, order);
+                          return;
+                        }
+
                         await _orderService.approveOrder(order.id!);
-                        if (order.paymentMethod == PaymentMethod.qr) {
-                          // QR: receipt shown on kiosk side
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  context.read<LocaleProvider>().t(
-                                    'ยืนยันการชำระเงิน QR สำเร็จ',
-                                    'QR payment approved',
-                                  ),
+                        if (order.memberPhone != null && order.memberPhone!.isNotEmpty) {
+                          if (order.redeemedPoints > 0) {
+                            try {
+                              await MemberService().redeemPoints(order.memberPhone!, order.redeemedPoints);
+                            } catch (e) {
+                              debugPrint('[POS] Error redeeming points: $e');
+                            }
+                          }
+                          final earned = order.pointsEarned > 0 ? order.pointsEarned : (order.total / 20).floor();
+                          if (earned > 0) {
+                            try {
+                              await MemberService().addPoints(order.memberPhone!, earned);
+                            } catch (e) {
+                              debugPrint('[POS] Error adding points: $e');
+                            }
+                          }
+                        }
+
+                        // QR: receipt shown on kiosk side
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                context.read<LocaleProvider>().t(
+                                  'ยืนยันการชำระเงิน QR สำเร็จ',
+                                  'QR payment approved',
                                 ),
                               ),
-                            );
-                          }
-                        } else {
-                          // Cash: show receipt dialog on POS
-                          if (context.mounted) {
-                            await _showReceiptDialog(context, order);
-                          }
+                            ),
+                          );
                         }
                       },
                       onReceipt: () => _showReceiptBottomSheet(context, order),
+                      onCancel: () => _confirmCancelOrder(context, order),
                     );
                   },
                 );
@@ -890,6 +1057,54 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmCancelOrder(BuildContext context, Order order) async {
+    final locale = context.read<LocaleProvider>();
+    final queueStr = order.queueNumber.toString().padLeft(3, '0');
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(locale.t('ยกเลิกออร์เดอร์?', 'Cancel Order?')),
+        content: Text(
+          locale.t(
+            'คุณต้องการยกเลิกออร์เดอร์ คิวที่ #$queueStr ใช่หรือไม่?',
+            'Are you sure you want to cancel order #$queueStr?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(locale.t('ไม่ยกเลิก', 'No, keep it')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(locale.t('ยืนยันยกเลิก', 'Yes, cancel order')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && order.id != null) {
+      await _orderService.cancelOrder(order.id!);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              locale.t(
+                'ยกเลิกออร์เดอร์ คิวที่ #$queueStr เรียบร้อยแล้ว',
+                'Order #$queueStr has been cancelled',
+              ),
+            ),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildFilterChip(String label, PosFilter filter, ThemeData theme) {
@@ -1004,36 +1219,74 @@ class _OrderCard extends StatelessWidget {
     required this.queueNumber,
     required this.status,
     required this.paymentMethod,
+    this.orderStatus,
+    this.items = const [],
     required this.total,
     required this.onApprove,
     required this.onReceipt,
+    this.onCancel,
   });
 
   final String queueNumber;
   final String status;
   final PaymentMethod paymentMethod;
+  final OrderStatus? orderStatus;
+  final List<OrderItem> items;
   final double total;
   final VoidCallback? onApprove;
   final VoidCallback? onReceipt;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final locale = context.watch<LocaleProvider>();
     final isCash = paymentMethod == PaymentMethod.cash;
+    final isConfirmedQr = !isCash && orderStatus == OrderStatus.awaitingApproval;
+    final isScanningQr = !isCash && orderStatus == OrderStatus.pendingPayment;
+
+    // Status pill background and text color
+    Color statusBg = kTan;
+    Color statusTextColor = kColorSecondary;
+    Border? statusBorder;
+    Widget? statusIcon;
+
+    if (isConfirmedQr) {
+      statusBg = const Color(0xFFE8F5E9);
+      statusTextColor = const Color(0xFF1B5E20);
+      statusBorder = Border.all(color: const Color(0xFF2E7D32), width: 1.5);
+      statusIcon = const Icon(Icons.check_circle, size: 15, color: Color(0xFF1B5E20));
+    } else if (isScanningQr) {
+      statusBg = const Color(0xFFFFF3E0);
+      statusTextColor = const Color(0xFFE65100);
+      statusBorder = Border.all(color: const Color(0xFFFF9800), width: 1.2);
+      statusIcon = const Icon(Icons.hourglass_top, size: 14, color: Color(0xFFE65100));
+    }
 
     return Card(
+      elevation: isConfirmedQr ? 4 : 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(kRadiusCard),
+        side: isConfirmedQr
+            ? const BorderSide(color: Color(0xFF2E7D32), width: 2)
+            : (isScanningQr
+                ? const BorderSide(color: Color(0xFFFFB74D), width: 1.5)
+                : const BorderSide(color: kColorBorder)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(kSpace16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Queue number & status
+            // Queue number & status pill
             Row(
               children: [
                 Text(
                   '${locale.t('คิวที่ ', 'Queue #')}$queueNumber',
-                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: kColorTextHeading,
+                  ),
                 ),
                 const Spacer(),
                 Container(
@@ -1042,26 +1295,119 @@ class _OrderCard extends StatelessWidget {
                     vertical: kSpace4,
                   ),
                   decoration: BoxDecoration(
-                    color: kTan,
+                    color: statusBg,
                     borderRadius: BorderRadius.circular(kRadiusPill),
+                    border: statusBorder,
                   ),
-                  child: Text(
-                    status,
-                    style: theme.textTheme.bodySmall?.copyWith(color: kColorSecondary),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (statusIcon != null) ...[
+                        statusIcon,
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        status,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: statusTextColor,
+                          fontWeight: (isConfirmedQr || isScanningQr)
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: kSpace8),
+
+            // Notice Banner for QR Payment
+            if (isConfirmedQr) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E9),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFA5D6A7)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.verified, size: 16, color: Color(0xFF2E7D32)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        locale.t(
+                          'ลูกค้าแจ้งโอนแล้ว กรุณาตรวจสอบยอดโอนแล้วกดอนุมัติ',
+                          'Customer confirmed transfer. Verify slip & approve.',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B5E20),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (isScanningQr) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF8E1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFFE082)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 16, color: Color(0xFFE65100)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        locale.t(
+                          'ลูกค้ากำลังสแกน QR ที่ตู้ Kiosk',
+                          'Customer is currently scanning QR at Kiosk',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFFE65100),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            if (items.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                items.map((i) => '${i.name} x${i.quantity}').join(', '),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: kColorTextMuted,
+                  fontSize: 12,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+
+            const SizedBox(height: kSpace12),
 
             // Payment method badge & total
             Row(
               children: [
-                // Brown badge for Cash, Green badge for QR
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: kSpace12, vertical: kSpace4),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: kSpace12, vertical: kSpace4),
                   decoration: BoxDecoration(
-                    color: isCash ? kColorSecondary.withValues(alpha: 0.12) : kGreen100,
+                    color: isCash
+                        ? kColorSecondary.withValues(alpha: 0.12)
+                        : kGreen100,
                     borderRadius: BorderRadius.circular(kRadiusPill),
                     border: Border.all(
                       color: isCash
@@ -1094,6 +1440,7 @@ class _OrderCard extends StatelessWidget {
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: kColorPrimary,
+                    fontSize: 18,
                   ),
                 ),
               ],
@@ -1105,21 +1452,63 @@ class _OrderCard extends StatelessWidget {
               children: [
                 if (onApprove != null)
                   Expanded(
+                    flex: 3,
                     child: ElevatedButton(
-                      onPressed: onApprove,
-                      child: Text(locale.t('ยืนยัน', 'Approve')),
+                      onPressed: isScanningQr ? null : onApprove,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isConfirmedQr
+                            ? const Color(0xFF2E7D32)
+                            : (isCash ? kColorSecondary : kColorPrimary),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFFE0E0E0),
+                        disabledForegroundColor: const Color(0xFF9E9E9E),
+                        elevation: isConfirmedQr ? 3 : 1,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        isScanningQr
+                            ? locale.t('รอยืนยันการโอน', 'Awaiting Transfer')
+                            : (isConfirmedQr
+                                ? locale.t('อนุมัติรับเงิน', 'Approve Payment')
+                                : locale.t('ได้รับเงิน', 'Receive Cash')),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                if (onApprove != null && onReceipt != null)
+                if (onReceipt != null) ...[
                   const SizedBox(width: kSpace8),
-                if (onReceipt != null)
                   Expanded(
+                    flex: 2,
                     child: OutlinedButton.icon(
                       onPressed: onReceipt,
-                      icon: const Icon(Icons.receipt_long, size: 18),
-                      label: Text(locale.t('ใบเสร็จ', 'Receipt')),
+                      icon: const Icon(Icons.receipt_long, size: 16),
+                      label: Text(
+                        locale.t('ใบเสร็จ', 'Receipt'),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
                     ),
                   ),
+                ],
+                if (onCancel != null) ...[
+                  const SizedBox(width: kSpace8),
+                  IconButton(
+                    onPressed: onCancel,
+                    icon: const Icon(Icons.cancel_outlined),
+                    color: Colors.red.shade700,
+                    tooltip: locale.t('ยกเลิกออร์เดอร์', 'Cancel Order'),
+                  ),
+                ],
               ],
             ),
           ],
@@ -1173,9 +1562,11 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
           ci.milkType == item.milkType);
       if (idx >= 0) {
         final existing = _posCart[idx];
-        _posCart[idx] = existing.copyWith(quantity: existing.quantity + item.quantity);
+        _posCart[idx] = existing.copyWith(
+          quantity: (existing.quantity + item.quantity).clamp(1, 99),
+        );
       } else {
-        _posCart.add(item);
+        _posCart.add(item.copyWith(quantity: item.quantity.clamp(1, 99)));
       }
     });
   }
@@ -1184,6 +1575,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
     setState(() {
       final item = _posCart[index];
       final newQty = item.quantity + delta;
+      if (newQty > 99) return;
       if (newQty <= 0) {
         _posCart.removeAt(index);
         if (_posCart.isEmpty) {
@@ -1319,7 +1711,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
 
   Future<void> _showCounterRedeemDialog(BuildContext context, Member member) async {
     final locale = context.read<LocaleProvider>();
-    final maxRedeemablePoints = min(member.points, (_grandTotalBeforeDiscount * 100).toInt());
+    final maxRedeemablePoints = min(member.points, _grandTotalBeforeDiscount.floor());
 
     if (maxRedeemablePoints <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1344,7 +1736,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final discountValue = currentSelection / 100.0;
+            final discountValue = currentSelection * 1.0;
             final totalAfter = (_grandTotalBeforeDiscount - discountValue).clamp(0.0, double.infinity);
 
             return AlertDialog(
@@ -1377,7 +1769,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                       value: currentSelection.toDouble(),
                       min: 0,
                       max: maxRedeemablePoints.toDouble(),
-                      divisions: maxRedeemablePoints > 0 ? max(1, min(maxRedeemablePoints, 100)) : 1,
+                      divisions: maxRedeemablePoints > 0 ? maxRedeemablePoints : 1,
                       label: '$currentSelection ${locale.t('แต้ม', 'pts')}',
                       activeColor: kColorPrimary,
                       onChanged: (val) {
@@ -1392,20 +1784,20 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                       spacing: kSpace8,
                       runSpacing: kSpace4,
                       children: [
+                        if (maxRedeemablePoints >= 10)
+                          ActionChip(
+                            label: Text('10 ${locale.t('แต้ม', 'pts')}'),
+                            onPressed: () => setDialogState(() => currentSelection = 10),
+                          ),
+                        if (maxRedeemablePoints >= 20)
+                          ActionChip(
+                            label: Text('20 ${locale.t('แต้ม', 'pts')}'),
+                            onPressed: () => setDialogState(() => currentSelection = 20),
+                          ),
                         if (maxRedeemablePoints >= 50)
                           ActionChip(
-                            label: const Text('50 แต้ม'),
+                            label: Text('50 ${locale.t('แต้ม', 'pts')}'),
                             onPressed: () => setDialogState(() => currentSelection = 50),
-                          ),
-                        if (maxRedeemablePoints >= 100)
-                          ActionChip(
-                            label: const Text('100 แต้ม'),
-                            onPressed: () => setDialogState(() => currentSelection = 100),
-                          ),
-                        if (maxRedeemablePoints >= 200)
-                          ActionChip(
-                            label: const Text('200 แต้ม'),
-                            onPressed: () => setDialogState(() => currentSelection = 200),
                           ),
                         ActionChip(
                           label: Text(locale.t('ใช้แต้มสูงสุด', 'Use Max')),
@@ -1469,7 +1861,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                   onPressed: () {
                     setState(() {
                       _redeemedPoints = currentSelection;
-                      _memberDiscount = currentSelection / 100.0;
+                      _memberDiscount = currentSelection * 1.0;
                     });
                     Navigator.of(dialogContext).pop();
                   },
@@ -2127,7 +2519,7 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                                                   const SizedBox(width: kSpace4),
                                                   Expanded(
                                                     child: Text(
-                                                      '${locale.t('คุณมี', 'You have')} ${_counterMember!.points} ${locale.t('แต้ม', 'points')} (${locale.t('มูลค่า', 'value')} ${(_counterMember!.points / 100).toStringAsFixed(2)} ${locale.t('บาท', 'baht')})',
+                                                      '${locale.t('คุณมี', 'You have')} ${_counterMember!.points} ${locale.t('แต้ม', 'points')} (${locale.t('มูลค่า', 'value')} ${_counterMember!.points} ${locale.t('บาท', 'baht')})',
                                                       style: theme.textTheme.bodySmall?.copyWith(
                                                         color: kColorPrimary,
                                                         fontWeight: FontWeight.w600,
@@ -2344,13 +2736,412 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Cash Payment & Change Calculation Dialog
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _CashPaymentDialog extends StatefulWidget {
+  const _CashPaymentDialog({required this.order});
+
+  final Order order;
+
+  @override
+  State<_CashPaymentDialog> createState() => _CashPaymentDialogState();
+}
+
+class _CashPaymentDialogState extends State<_CashPaymentDialog> {
+  late final TextEditingController _cashController;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _cashController = TextEditingController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _cashController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _setAmount(double amount) {
+    setState(() {
+      if (amount == amount.roundToDouble()) {
+        _cashController.text = amount.toInt().toString();
+      } else {
+        _cashController.text = amount.toStringAsFixed(2);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final locale = context.watch<LocaleProvider>();
+    final total = widget.order.total;
+    final queueStr = widget.order.queueNumber.toString().padLeft(3, '0');
+
+    final inputStr = _cashController.text.trim();
+    final received = double.tryParse(inputStr);
+    final isNotEmpty = inputStr.isNotEmpty;
+    final isSufficient = received != null && received >= total;
+    final change = isSufficient ? (received - total) : 0.0;
+    final shortage = (received != null && received < total) ? (total - received) : 0.0;
+
+    // Standard Thai banknote quick chips
+    final quickAmounts = <double>[];
+    if (total <= 100) quickAmounts.add(100);
+    if (total <= 500) quickAmounts.add(500);
+    quickAmounts.add(1000);
+    if (total > 1000) {
+      final next500 = ((total / 500).ceil()) * 500.0;
+      if (!quickAmounts.contains(next500)) quickAmounts.add(next500);
+    }
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadiusCard)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: kGreen100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.payments_outlined, color: kGreen800, size: 24),
+                  ),
+                  const SizedBox(width: kSpace12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          locale.t('รับชำระเงินสด & คำนวณเงินทอน', 'Cash Payment & Change'),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: kCoffee900,
+                          ),
+                        ),
+                        Text(
+                          '${locale.t('คิวที่', 'Queue')} #$queueStr • ${widget.order.items.length} ${locale.t('รายการ', 'items')}',
+                          style: theme.textTheme.bodySmall?.copyWith(color: kCoffee700),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: kCoffee700),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: kSpace16),
+
+              // Order Total Card
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: kSpace16, vertical: kSpace12),
+                decoration: BoxDecoration(
+                  color: kCream,
+                  borderRadius: BorderRadius.circular(kRadiusCard),
+                  border: Border.all(color: kTan),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      locale.t('ยอดที่ต้องชำระ:', 'Total Due:'),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: kCoffee700,
+                      ),
+                    ),
+                    Text(
+                      '฿${total.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 22,
+                        color: kCoffee900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: kSpace16),
+
+              // Cash input field
+              Text(
+                locale.t('จำนวนเงินที่ได้รับจากลูกค้า:', 'Cash Received:'),
+                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _cashController,
+                focusNode: _focusNode,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+                ],
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: kCoffee900,
+                ),
+                decoration: InputDecoration(
+                  prefixIcon: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      '฿',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: kCoffee700,
+                      ),
+                    ),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                  suffixIcon: isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 20),
+                          onPressed: () {
+                            _cashController.clear();
+                            setState(() {});
+                          },
+                        )
+                      : null,
+                  hintText: '0.00',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontFamily: 'monospace',
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: (isNotEmpty && !isSufficient) ? Colors.red : kTan,
+                      width: 1.5,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: (isNotEmpty && !isSufficient) ? Colors.red : kColorPrimary,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: kSpace8),
+
+              // Quick banknote shortcut chips
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.check, size: 16, color: kCoffee900),
+                    label: Text(
+                      '${locale.t('พอดี', 'Exact')} (฿${total.toStringAsFixed(total % 1 == 0 ? 0 : 2)})',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: kTan.withValues(alpha: 0.6),
+                    onPressed: () => _setAmount(total),
+                  ),
+                  for (final amount in quickAmounts)
+                    ActionChip(
+                      label: Text(
+                        '฿${amount.toInt()}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                      backgroundColor: Colors.white,
+                      side: const BorderSide(color: kTan),
+                      onPressed: () => _setAmount(amount),
+                    ),
+                ],
+              ),
+              const SizedBox(height: kSpace16),
+
+              // Change / Status Display Box
+              if (isNotEmpty && !isSufficient)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '${locale.t('เงินไม่พอ! ขาดอีก', 'Insufficient! Short by')} ฿${shortage.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: Colors.red.shade800,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (isSufficient)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF4CAF50), width: 1.5),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            locale.t('เงินทอนที่ต้องคืนลูกค้า', 'Change Due'),
+                            style: const TextStyle(
+                              color: Color(0xFF2E7D32),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          if (change == 0)
+                            Text(
+                              locale.t('(จ่ายพอดี ไม่มีเงินทอน)', '(Exact payment, no change)'),
+                              style: TextStyle(
+                                color: Colors.green.shade800,
+                                fontSize: 11,
+                              ),
+                            ),
+                        ],
+                      ),
+                      Text(
+                        '฿${change.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B5E20),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.grey.shade600, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          locale.t(
+                            'กรอกจำนวนเงินหรือกดปุ่มลัดเพื่อคำนวณเงินทอน',
+                            'Enter amount or tap buttons to calculate change',
+                          ),
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
+
+              // Action buttons
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text(locale.t('ยกเลิก', 'Cancel')),
+                    ),
+                  ),
+                  const SizedBox(width: kSpace12),
+                  Expanded(
+                    flex: 3,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isSufficient ? const Color(0xFF2E7D32) : Colors.grey.shade400,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: isSufficient ? 2 : 0,
+                      ),
+                      onPressed: isSufficient
+                          ? () {
+                              Navigator.of(context).pop<Map<String, double>>({
+                                'received': received,
+                                'change': change,
+                              });
+                            }
+                          : null,
+                      icon: const Icon(Icons.check_circle_outline, size: 18),
+                      label: Text(
+                        locale.t('ยืนยันรับเงิน', 'Confirm Payment'),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Receipt Modal Dialog
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _ReceiptDialog extends StatelessWidget {
-  const _ReceiptDialog({required this.order});
+  const _ReceiptDialog({
+    required this.order,
+    this.receivedAmount,
+    this.changeAmount,
+  });
 
   final Order order;
+  final double? receivedAmount;
+  final double? changeAmount;
 
   @override
   Widget build(BuildContext context) {
@@ -2361,6 +3152,8 @@ class _ReceiptDialog extends StatelessWidget {
         '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     final paymentMethodStr =
         order.paymentMethod == PaymentMethod.qr ? 'QR PromptPay' : locale.t('เงินสด', 'Cash');
+    final displayReceived = receivedAmount ?? order.receivedAmount;
+    final displayChange = changeAmount ?? order.changeAmount ?? (displayReceived != null ? (displayReceived - order.total) : null);
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadiusCard)),
@@ -2566,6 +3359,84 @@ class _ReceiptDialog extends StatelessWidget {
                         ),
                       ],
                     ),
+
+                    if (order.redeemedPoints > 0 || order.discount > 0) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${locale.t('ส่วนลดแต้ม', 'Points Discount')} (-${order.redeemedPoints} ${locale.t('แต้ม', 'pts')}):',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: Colors.green.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            '-฿${order.discount.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: Colors.green.shade800,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    if (order.pointsEarned > 0) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${locale.t('แต้มสะสมที่ได้รับ', 'Points Earned')}:',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: kCoffee700,
+                            ),
+                          ),
+                          Text(
+                            '+${order.pointsEarned} ${locale.t('แต้ม', 'pts')}',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: kCoffee900,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    if (order.memberPhone != null && order.memberPhone!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${locale.t('สมาชิก', 'Member')}:',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: kCoffee700,
+                            ),
+                          ),
+                          Text(
+                            order.memberPhone!,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: kCoffee900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 8),
 
                     // Payment method: "ชำระด้วย: {QR PromptPay / เงินสด}"
@@ -2577,6 +3448,56 @@ class _ReceiptDialog extends StatelessWidget {
                         color: kCoffee700,
                       ),
                     ),
+
+                    if (displayReceived != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${locale.t('รับเงินสด', 'Cash Received')}:',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: kCoffee700,
+                            ),
+                          ),
+                          Text(
+                            '฿${displayReceived.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: kCoffee900,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${locale.t('เงินทอน', 'Change')}:',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF2E7D32),
+                            ),
+                          ),
+                          Text(
+                            '฿${(displayChange ?? 0.0).toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF2E7D32),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 10),
 
                     // Centered: "ขอบคุณที่ใช้บริการ"
@@ -2597,13 +3518,17 @@ class _ReceiptDialog extends StatelessWidget {
               const SizedBox(height: kSpace16),
 
               // Two buttons at bottom:
-              // 1. "🖨️ พิมพ์ใบเสร็จ" → calls window.print() via dart:html, then closes dialog
+              // 1. "🖨️ พิมพ์ใบเสร็จ" → prints thermal receipt only
               // 2. "ปิด (ไม่พิมพ์)" → closes dialog only
               SizedBox(
                 height: 44,
                 child: ElevatedButton(
                   onPressed: () {
-                    html.window.print();
+                    final printOrder = order.copyWith(
+                      receivedAmount: displayReceived,
+                      changeAmount: displayChange,
+                    );
+                    printThermalReceipt(printOrder);
                     Navigator.of(context).pop();
                   },
                   style: ElevatedButton.styleFrom(
@@ -2707,10 +3632,10 @@ class _ManualPointsDialogState extends State<_ManualPointsDialog> {
       return;
     }
 
-    final points = (amount / 10).floor();
+    final points = (amount / 20).floor();
     if (points <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ยอดเงินต้องอย่างน้อย 10 บาทเพื่อรับ 1 แต้ม')),
+        const SnackBar(content: Text('ยอดเงินต้องอย่างน้อย 20 บาทเพื่อรับ 1 แต้ม')),
       );
       return;
     }
@@ -2749,7 +3674,7 @@ class _ManualPointsDialogState extends State<_ManualPointsDialog> {
 
     final amountText = _amountController.text.trim();
     final amount = double.tryParse(amountText) ?? 0.0;
-    final calculatedPoints = (amount / 10).floor();
+    final calculatedPoints = (amount / 20).floor();
 
     return AlertDialog(
       title: Row(
@@ -2926,7 +3851,7 @@ class _ManualPointsDialogState extends State<_ManualPointsDialog> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        locale.t('แต้มที่จะได้รับ (100 บ. = 10 แต้ม):', 'Points to add (100 THB = 10 pts):'),
+                        locale.t('แต้มที่จะได้รับ (20 บ. = 1 แต้ม):', 'Points to add (20 THB = 1 pt):'),
                         style: theme.textTheme.bodySmall,
                       ),
                       Text(

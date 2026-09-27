@@ -61,11 +61,13 @@ class ItemCustomizationModal extends StatefulWidget {
   }
 
   static List<String> getMilkOptions(String itemName) {
+    if (itemName == 'Thai Tea') {
+      return ['นมข้นหวาน', 'นมสด', 'นมข้นจืด'];
+    }
     if (itemName == 'Matcha Latte') {
       return ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'];
     }
-    // Thai Tea and all other drinks:
-    return ['นมสด', 'นมโอ๊ต', 'นมอัลมอนด์'];
+    return ['Regular', 'นมโอ๊ต', 'นมอัลมอนด์'];
   }
 
   @override
@@ -294,10 +296,12 @@ class _ItemCustomizationModalState extends State<ItemCustomizationModal> {
                                 ),
                               ),
                               IconButton(
-                                onPressed: () => setState(() => _quantity++),
+                                onPressed: _quantity < 99
+                                    ? () => setState(() => _quantity++)
+                                    : null,
                                 icon: const Icon(Icons.add_circle_outline),
                                 iconSize: 28,
-                                color: kColorPrimary,
+                                color: _quantity < 99 ? kColorPrimary : Colors.grey,
                               ),
                             ],
                           ),

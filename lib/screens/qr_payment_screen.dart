@@ -1,10 +1,11 @@
 // ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:async';
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:thai_promptpay/thai_promptpay.dart';
+
+import 'package:go_router/go_router.dart';
 
 import '../models/order.dart';
 import '../providers/cart_provider.dart';
@@ -13,8 +14,8 @@ import '../services/member_service.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
 import '../utils/customization_rules.dart';
+import '../utils/printer.dart';
 import '../widgets/language_toggle.dart';
-import 'standby_screen.dart';
 
 // ---------------------------------------------------------------------------
 // PromptPay ID — store your phone/national-ID in your .env / app config.
@@ -52,6 +53,8 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   Timer? _countdownTimer;
   int _countdown = 15;
   bool _countdownStarted = false;
+  Timer? _qrExpiryTimer;
+  int _qrSecondsRemaining = 180; // 3 minutes
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -65,6 +68,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _qrExpiryTimer?.cancel();
     _orderSub?.cancel();
     super.dispose();
   }
@@ -112,6 +116,8 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         vat: breakdown.vat,
         total: cart.totalAfterDiscount,
         discount: cart.discount,
+        redeemedPoints: cart.redeemedPoints,
+        pointsEarned: (cart.totalAfterDiscount / 20).floor(),
         memberPhone: cart.memberPhone,
       );
 
@@ -137,6 +143,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         _qrPayload = payload;
         _step = _PaymentStep.awaitingScan;
       });
+      _startQrExpiryTimer();
     } catch (e) {
       if (!mounted) return;
       final locale = context.read<LocaleProvider>();
@@ -162,13 +169,26 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   }
 
   Future<void> _handlePaymentSuccess(Order updated) async {
-    // If member phone was attached to this order, add points for purchase
+    _qrExpiryTimer?.cancel();
+    _orderSub?.cancel();
+
+    // If member phone was attached to this order, redeem & add points
     final phone = updated.memberPhone ?? context.read<CartProvider>().memberPhone;
     if (phone != null && phone.isNotEmpty) {
-      try {
-        await MemberService().addPointsForPurchase(phone, updated.total.toInt());
-      } catch (e) {
-        debugPrint('[QR] Error adding points for purchase: $e');
+      if (updated.redeemedPoints > 0) {
+        try {
+          await MemberService().redeemPoints(phone, updated.redeemedPoints);
+        } catch (e) {
+          debugPrint('[QR] Error redeeming points: $e');
+        }
+      }
+      final earned = updated.pointsEarned > 0 ? updated.pointsEarned : (updated.total / 20).floor();
+      if (earned > 0) {
+        try {
+          await MemberService().addPoints(phone, earned);
+        } catch (e) {
+          debugPrint('[QR] Error adding points for purchase: $e');
+        }
       }
     }
 
@@ -176,7 +196,6 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     if (mounted) {
       context.read<CartProvider>().clear();
     }
-    _orderSub?.cancel();
     setState(() {
       _order = updated;
       _step = _PaymentStep.success;
@@ -219,6 +238,7 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
 
   Future<void> _onCustomerConfirmed() async {
     if (_order?.id == null) return;
+    _qrExpiryTimer?.cancel();
     setState(() => _step = _PaymentStep.awaitingApproval);
 
     try {
@@ -236,17 +256,117 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
         ),
       );
       setState(() => _step = _PaymentStep.awaitingScan);
+      _startQrExpiryTimer();
     }
+  }
+
+  // ── QR Expiry & Actions ───────────────────────────────────────────────────
+
+  void _startQrExpiryTimer() {
+    _qrExpiryTimer?.cancel();
+    _qrSecondsRemaining = 180; // 3 minutes
+    _qrExpiryTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_qrSecondsRemaining > 1) {
+        setState(() => _qrSecondsRemaining--);
+      } else {
+        timer.cancel();
+        _onQrExpired();
+      }
+    });
+  }
+
+  void _onQrExpired() {
+    _qrExpiryTimer?.cancel();
+    _orderSub?.cancel();
+    if (_order?.id != null) {
+      try {
+        _orderService.cancelOrder(_order!.id!);
+      } catch (_) {}
+    }
+    setState(() {
+      _step = _PaymentStep.qrExpired;
+    });
+  }
+
+  Future<void> _onBackToCheckout() async {
+    _qrExpiryTimer?.cancel();
+    _orderSub?.cancel();
+    if (_order?.id != null) {
+      try {
+        await _orderService.deleteOrder(_order!.id!);
+      } catch (_) {}
+    }
+    if (mounted) {
+      context.go('/kiosk/checkout');
+    }
+  }
+
+  Future<void> _onCancelOrder() async {
+    final locale = context.read<LocaleProvider>();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(locale.t('ยกเลิกการสั่งซื้อ?', 'Cancel Order?')),
+        content: Text(
+          locale.t(
+            'คุณต้องการยกเลิกคำสั่งซื้อนี้และกลับสู่หน้าหลักใช่หรือไม่?',
+            'Do you want to cancel this order and return to home?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(locale.t('ไม่ยกเลิก', 'No, keep order')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(locale.t('ยืนยันยกเลิก', 'Yes, cancel')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      _qrExpiryTimer?.cancel();
+      _orderSub?.cancel();
+      if (_order?.id != null) {
+        try {
+          await _orderService.deleteOrder(_order!.id!);
+        } catch (_) {}
+      }
+      if (mounted) {
+        context.read<CartProvider>().clear();
+        _onDone();
+      }
+    }
+  }
+
+  String _formatTime(int totalSeconds) {
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   // ── Navigate back to standby after success ────────────────────────────────
 
   void _onDone() {
     _countdownTimer?.cancel();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const StandbyScreen()),
-      (route) => false,
-    );
+    _qrExpiryTimer?.cancel();
+    _orderSub?.cancel();
+    if (Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    if (mounted) {
+      context.go('/kiosk');
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -255,26 +375,38 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
   Widget build(BuildContext context) {
     final locale = context.watch<LocaleProvider>();
 
-    return Scaffold(
-      backgroundColor: kColorBg,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            switch (_step) {
-              _PaymentStep.generatingQr =>
-                _buildLoading(locale.t('กำลังสร้าง QR Code...', 'Generating QR Code...')),
-              _PaymentStep.awaitingScan => _buildQrView(locale),
-              _PaymentStep.awaitingApproval =>
-                _buildLoading(locale.t('รอพนักงานยืนยันการชำระเงิน...', 'Waiting for staff approval...')),
-              _PaymentStep.success => _buildSuccess(locale),
-              _PaymentStep.error => _buildError(locale),
-            },
-            const Positioned(
-              top: kSpace16,
-              right: kSpace16,
-              child: LanguageToggle(),
-            ),
-          ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (_step == _PaymentStep.success) {
+          _onDone();
+        } else {
+          await _onBackToCheckout();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: kColorBg,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              switch (_step) {
+                _PaymentStep.generatingQr =>
+                  _buildLoading(locale.t('กำลังสร้าง QR Code...', 'Generating QR Code...')),
+                _PaymentStep.awaitingScan => _buildQrView(locale),
+                _PaymentStep.awaitingApproval =>
+                  _buildLoading(locale.t('รอพนักงานยืนยันการชำระเงิน...', 'Waiting for staff approval...')),
+                _PaymentStep.success => _buildSuccess(locale),
+                _PaymentStep.error => _buildError(locale),
+                _PaymentStep.qrExpired => _buildQrExpired(locale),
+              },
+              const Positioned(
+                top: kSpace16,
+                right: kSpace16,
+                child: LanguageToggle(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -326,7 +458,39 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                       color: kColorTextMuted,
                     ),
                   ),
-                  const SizedBox(height: kSpace32),
+                  const SizedBox(height: kSpace16),
+
+                  // Expiration countdown badge
+                  Container(
+                    margin: const EdgeInsets.only(bottom: kSpace16),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _qrSecondsRemaining < 30 ? Colors.red.shade50 : kTan,
+                      borderRadius: BorderRadius.circular(kRadiusPill),
+                      border: Border.all(
+                        color: _qrSecondsRemaining < 30 ? Colors.red.shade300 : kColorBorder,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.timer_outlined,
+                          size: 16,
+                          color: _qrSecondsRemaining < 30 ? Colors.red.shade700 : kCoffee700,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${locale.t('QR Code หมดอายุใน', 'Expires in')} ${_formatTime(_qrSecondsRemaining)}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: _qrSecondsRemaining < 30 ? Colors.red.shade700 : kCoffee900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                   // QR Code
                   Container(
@@ -425,6 +589,50 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                         ),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: kSpace12),
+
+                  // Cancel & Back buttons
+                  Row(
+                    children: [
+                      // Back / Change payment method
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: OutlinedButton.icon(
+                            onPressed: _onBackToCheckout,
+                            icon: const Icon(Icons.arrow_back, size: 16),
+                            label: Text(locale.t('เปลี่ยนวิธีชำระ', 'Change Payment')),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: kCoffee900,
+                              side: const BorderSide(color: kCoffee500),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(kRadiusPill),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: kSpace12),
+                      // Cancel order
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: OutlinedButton.icon(
+                            onPressed: _onCancelOrder,
+                            icon: const Icon(Icons.close, size: 16),
+                            label: Text(locale.t('ยกเลิกออร์เดอร์', 'Cancel Order')),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red.shade700,
+                              side: BorderSide(color: Colors.red.shade300),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(kRadiusPill),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -690,6 +898,83 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
     );
   }
 
+  Widget _buildQrExpired(LocaleProvider locale) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 440),
+        padding: const EdgeInsets.all(kSpace32),
+        decoration: BoxDecoration(
+          color: kColorSurface,
+          borderRadius: BorderRadius.circular(kRadiusCard),
+          border: Border.all(color: kColorBorder),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.timer_off_outlined, color: Colors.amber.shade800, size: 64),
+            const SizedBox(height: kSpace16),
+            Text(
+              locale.t('QR Code หมดอายุแล้ว', 'QR Code Expired'),
+              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: kSpace8),
+            Text(
+              locale.t(
+                'กรุณาสร้าง QR Code ใหม่อีกครั้ง หรือเลือกเปลี่ยนช่องทางชำระเงิน',
+                'Please regenerate the QR Code or change your payment method.',
+              ),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(color: kColorTextMuted),
+            ),
+            const SizedBox(height: kSpace24),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _initOrder,
+                icon: const Icon(Icons.refresh),
+                label: Text(locale.t('สร้าง QR Code ใหม่อีกครั้ง', 'Regenerate QR Code')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kColorPrimary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadiusPill)),
+                ),
+              ),
+            ),
+            const SizedBox(height: kSpace12),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: _onBackToCheckout,
+                icon: const Icon(Icons.payment),
+                label: Text(locale.t('เปลี่ยนวิธีชำระเงิน', 'Change Payment Method')),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: kCoffee900,
+                  side: const BorderSide(color: kCoffee500),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadiusPill)),
+                ),
+              ),
+            ),
+            const SizedBox(height: kSpace12),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: TextButton(
+                onPressed: _onCancelOrder,
+                child: Text(
+                  locale.t('ยกเลิกการสั่งซื้อนี้', 'Cancel this order'),
+                  style: TextStyle(color: Colors.red.shade700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   TextStyle _bodyStyle() => TextStyle(
         color: kColorTextBody,
         fontSize: 16,
@@ -706,6 +991,7 @@ enum _PaymentStep {
   awaitingApproval,
   success,
   error,
+  qrExpired,
 }
 
 class _TotalRow extends StatelessWidget {
@@ -961,6 +1247,84 @@ class _KioskReceiptDialog extends StatelessWidget {
                             ),
                           ],
                         ),
+
+                        if (order.redeemedPoints > 0 || order.discount > 0) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${locale.t('ส่วนลดแต้ม', 'Points Discount')} (-${order.redeemedPoints} ${locale.t('แต้ม', 'pts')}):',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: Colors.green.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                '-฿${order.discount.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: Colors.green.shade800,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+
+                        if (order.pointsEarned > 0) ...[
+                          const SizedBox(height: 2),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${locale.t('แต้มสะสมที่ได้รับ', 'Points Earned')}:',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: kCoffee700,
+                                ),
+                              ),
+                              Text(
+                                '+${order.pointsEarned} ${locale.t('แต้ม', 'pts')}',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: kCoffee900,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+
+                        if (order.memberPhone != null && order.memberPhone!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${locale.t('สมาชิก', 'Member')}:',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: kCoffee700,
+                                ),
+                              ),
+                              Text(
+                                order.memberPhone!,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: kCoffee900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: 8),
 
                         // Payment method: "QR PromptPay"
@@ -992,12 +1356,12 @@ class _KioskReceiptDialog extends StatelessWidget {
                   const SizedBox(height: kSpace16),
 
                   // Two buttons:
-                  // 1. 🖨️ พิมพ์ใบเสร็จ -> green
+                  // 1. 🖨️ พิมพ์ใบเสร็จ -> thermal receipt print
                   SizedBox(
                     height: 44,
                     child: ElevatedButton(
                       onPressed: () {
-                        html.window.print();
+                        printThermalReceipt(order);
                         Navigator.of(context).pop();
                       },
                       style: ElevatedButton.styleFrom(

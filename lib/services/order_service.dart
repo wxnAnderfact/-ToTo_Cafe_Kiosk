@@ -41,11 +41,17 @@ class OrderService {
         .map((snap) => snap.exists ? Order.fromSnapshot(snap) : null);
   }
 
-  /// Stream all orders with status == awaitingApproval, ordered by createdAt ascending.
-  /// Optionally filters by [paymentMethod] (e.g. Cash or QR).
+  /// Stream all orders with status in [pendingPayment, awaitingApproval],
+  /// ordered by createdAt ascending. Optionally filters by [paymentMethod] (e.g. Cash or QR).
   Stream<List<Order>> watchPendingOrders({PaymentMethod? paymentMethod}) {
     return _collection
-        .where('status', isEqualTo: OrderStatus.awaitingApproval.value)
+        .where(
+          'status',
+          whereIn: [
+            OrderStatus.pendingPayment.value,
+            OrderStatus.awaitingApproval.value,
+          ],
+        )
         .snapshots()
         .map((snap) {
       var orders =
@@ -69,10 +75,30 @@ class OrderService {
     await updateStatus(orderId, OrderStatus.paid);
   }
 
+  /// Update order status to paid and record cash payment details.
+  Future<void> approveCashOrder(
+    String orderId, {
+    required double receivedAmount,
+    required double changeAmount,
+  }) async {
+    debugPrint('[POS] approveCashOrder called for $orderId: received=$receivedAmount, change=$changeAmount');
+    await _collection.doc(orderId).update({
+      'status': OrderStatus.paid.value,
+      'received_amount': receivedAmount,
+      'change_amount': changeAmount,
+    });
+  }
+
   /// Delete an order document from Firestore (e.g. canceled counter QR order).
   Future<void> deleteOrder(String orderId) async {
     debugPrint('[POS] deleteOrder called for $orderId');
     await _collection.doc(orderId).delete();
+  }
+
+  /// Cancel an order by updating status to cancelled.
+  Future<void> cancelOrder(String orderId) async {
+    debugPrint('[OrderService] cancelOrder called for $orderId');
+    await updateStatus(orderId, OrderStatus.cancelled);
   }
 
   /// Get the next queue number by counting existing orders for today.

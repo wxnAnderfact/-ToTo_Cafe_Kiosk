@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../services/liff_service.dart';
 import '../services/member_service.dart';
 
@@ -20,12 +22,16 @@ class _MemberScreenState extends State<MemberScreen> {
 
   String _screenState = 'loading'; // 'loading' | 'register' | 'profile'
   String _lineUserId = '';
+  String _memberDocId = '';
   String _displayName = '';
   String _pictureUrl = '';
   int _points = 0;
   String _phone = '';
   bool _isSubmitting = false;
   List<Map<String, dynamic>> _recentOrders = [];
+
+  StreamSubscription<dynamic>? _memberSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _ordersSubscription;
 
   @override
   void initState() {
@@ -35,8 +41,86 @@ class _MemberScreenState extends State<MemberScreen> {
 
   @override
   void dispose() {
+    _memberSubscription?.cancel();
+    _ordersSubscription?.cancel();
     _phoneController.dispose();
     super.dispose();
+  }
+
+  void _subscribeToMemberUpdates(String phone, {String? docId}) {
+    _memberSubscription?.cancel();
+    _ordersSubscription?.cancel();
+    final cleanPhone = phone.trim();
+
+    debugPrint('=== LIFF: Subscribing to real-time updates for phone: $cleanPhone, docId: $docId ===');
+
+    // 1. Listen to member points and profile in real-time
+    if (docId != null && docId.isNotEmpty) {
+      _memberSubscription = FirebaseFirestore.instance
+          .collection('members')
+          .doc(docId)
+          .snapshots()
+          .listen((docSnap) {
+        if (docSnap.exists && docSnap.data() != null && mounted) {
+          final data = docSnap.data()!;
+          final pts = (data['points'] as num?)?.toInt() ?? 0;
+          final name = (data['displayName'] ?? data['display_name'] ?? '').toString();
+          final pic = (data['pictureUrl'] ?? data['picture_url'] ?? '').toString();
+          final ph = (data['phone'] ?? '').toString();
+
+          setState(() {
+            _points = pts;
+            if (ph.isNotEmpty) _phone = ph;
+            if (name.isNotEmpty) _displayName = name;
+            if (pic.isNotEmpty) _pictureUrl = pic;
+            _screenState = 'profile';
+          });
+        }
+      });
+    } else if (cleanPhone.isNotEmpty) {
+      _memberSubscription = FirebaseFirestore.instance
+          .collection('members')
+          .where('phone', isEqualTo: cleanPhone)
+          .snapshots()
+          .listen((snapshot) {
+        if (snapshot.docs.isNotEmpty && mounted) {
+          final docSnap = snapshot.docs.first;
+          final data = docSnap.data();
+          final pts = (data['points'] as num?)?.toInt() ?? 0;
+          final name = (data['displayName'] ?? data['display_name'] ?? '').toString();
+          final pic = (data['pictureUrl'] ?? data['picture_url'] ?? '').toString();
+
+          setState(() {
+            _phone = cleanPhone;
+            _points = pts;
+            if (name.isNotEmpty) _displayName = name;
+            if (pic.isNotEmpty) _pictureUrl = pic;
+            _screenState = 'profile';
+          });
+        }
+      });
+    }
+
+    // 2. Listen to orders in real-time
+    if (cleanPhone.isNotEmpty) {
+      _ordersSubscription = FirebaseFirestore.instance
+          .collection('orders')
+          .where('memberPhone', isEqualTo: cleanPhone)
+          .snapshots()
+          .listen((snapshot) {
+        if (mounted) {
+          final list = snapshot.docs.map((d) => d.data()).toList();
+          list.sort((a, b) {
+            final aTime = _extractDate(a);
+            final bTime = _extractDate(b);
+            return bTime.compareTo(aTime);
+          });
+          setState(() {
+            _recentOrders = list.take(10).toList();
+          });
+        }
+      });
+    }
   }
 
   Future<void> _loadMember() async {
@@ -47,114 +131,56 @@ class _MemberScreenState extends State<MemberScreen> {
     try {
       debugPrint('=== LIFF: starting _loadMember ===');
 
-      // 1. Call LiffService().initialize()
       await LiffService().initialize();
       debugPrint('=== LIFF: initialized ===');
 
-      // 2. If not isLoggedIn() -> call LiffService().login() (redirects to LINE login)
-      if (!LiffService().isLoggedIn()) {
-        debugPrint('=== LIFF: not logged in, calling login() ===');
-        LiffService().login();
-        return;
-      }
-      debugPrint('=== LIFF: is logged in ===');
+      if (LiffService().isLoggedIn()) {
+        final profile = await LiffService().getProfile();
+        debugPrint('=== LIFF: got profile: $profile ===');
 
-      // 3. If logged in -> call getProfile() to get lineUserId + displayName + pictureUrl
-      final profile = await LiffService().getProfile();
-      debugPrint('=== LIFF: got profile: $profile ===');
+        _lineUserId = profile['userId'] ?? '';
+        _displayName = profile['displayName'] ?? '';
+        _pictureUrl = profile['pictureUrl'] ?? '';
 
-      _lineUserId = profile['userId'] ?? '';
-      _displayName = profile['displayName'] ?? '';
-      _pictureUrl = profile['pictureUrl'] ?? '';
+        if (_lineUserId.isNotEmpty) {
+          final memberDoc = await MemberService().getMemberByLineId(_lineUserId);
+          if (memberDoc != null && memberDoc.exists && memberDoc.data() != null) {
+            final data = memberDoc.data() as Map<String, dynamic>;
+            final phone = (data['phone'] ?? '').toString();
+            final name = (data['displayName'] ?? data['display_name'] ?? '').toString();
+            final pic = (data['pictureUrl'] ?? data['picture_url'] ?? '').toString();
 
-      // 4. Call MemberService.getMemberByLineId(lineUserId)
-      debugPrint('=== LIFF: checking member for lineUserId: $_lineUserId ===');
-      final memberDoc = await MemberService().getMemberByLineId(_lineUserId);
-      debugPrint('=== LIFF: memberDoc = $memberDoc ===');
+            _phone = phone;
+            _points = (data['points'] as num?)?.toInt() ?? 0;
+            _memberDocId = memberDoc.id;
+            if (name.isNotEmpty) _displayName = name;
+            if (pic.isNotEmpty) _pictureUrl = pic;
 
-      // 5. If member exists -> show profile state
-      if (memberDoc != null && memberDoc.exists && memberDoc.data() != null) {
-        debugPrint('=== LIFF: member EXISTS, showing profile ===');
-        final data = memberDoc.data() as Map<String, dynamic>;
-        final points = (data['points'] as num?)?.toInt() ?? 0;
-        final phone = (data['phone'] ?? '').toString();
+            _subscribeToMemberUpdates(phone, docId: memberDoc.id);
 
-        _phone = phone;
-        _points = points;
-
-        _fetchRecentOrders(phone);
-
-        if (mounted) {
-          setState(() {
-            _screenState = 'profile';
-          });
-        }
-      } else {
-        // 6. If not exists -> show register state
-        debugPrint('=== LIFF: member NOT FOUND, showing register state ===');
-        if (mounted) {
-          setState(() {
-            _screenState = 'register';
-          });
+            if (mounted) {
+              setState(() {
+                _screenState = 'profile';
+              });
+            }
+            return;
+          }
         }
       }
-    } catch (e, stack) {
-      debugPrint('=== LIFF ERROR: $e ===');
-      debugPrint('=== STACK: $stack ===');
-      // If error occurs, show register state so user can proceed
+
+      // If not logged in or member not found by LINE ID, show register / login view
       if (mounted) {
         setState(() {
           _screenState = 'register';
         });
       }
-    }
-  }
-
-  Future<void> _fetchRecentOrders(String phone) async {
-    if (phone.isEmpty) return;
-    try {
-      // Query 'orders' collection where memberPhone == phone, orderBy createdAt desc, limit 5
-      final query = await FirebaseFirestore.instance
-          .collection('orders')
-          .where('memberPhone', isEqualTo: phone)
-          .limit(5)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        final list = query.docs.map((d) => d.data()).toList();
-        list.sort((a, b) {
-          final aTime = _extractDate(a);
-          final bTime = _extractDate(b);
-          return bTime.compareTo(aTime);
-        });
-        if (mounted) {
-          setState(() {
-            _recentOrders = list;
-          });
-        }
-        return;
-      }
-
-      // Fallback query matching member_id or phone
-      final fallbackQuery = await FirebaseFirestore.instance
-          .collection('orders')
-          .where('member_id', isEqualTo: phone)
-          .limit(5)
-          .get();
-
-      final list = fallbackQuery.docs.map((d) => d.data()).toList();
-      list.sort((a, b) {
-        final aTime = _extractDate(a);
-        final bTime = _extractDate(b);
-        return bTime.compareTo(aTime);
-      });
+    } catch (e, stack) {
+      debugPrint('=== LIFF ERROR: $e ===\n$stack');
       if (mounted) {
         setState(() {
-          _recentOrders = list;
+          _screenState = 'register';
         });
       }
-    } catch (e) {
-      debugPrint('Error fetching recent orders: $e');
     }
   }
 
@@ -199,29 +225,34 @@ class _MemberScreenState extends State<MemberScreen> {
           ? _lineUserId
           : 'temp_${DateTime.now().millisecondsSinceEpoch}';
 
-      await MemberService().registerMember(
+      final member = await MemberService().registerMember(
         lineUserId: lineUserId,
         displayName: _displayName,
         pictureUrl: _pictureUrl,
         phone: phone,
       );
 
-      debugPrint('=== LIFF: registration succeeded for phone: $phone ===');
+      debugPrint('=== LIFF: registration/login succeeded for phone: $phone, points: ${member.points} ===');
 
       if (!mounted) return;
 
       setState(() {
-        _phone = phone;
-        _points = 0;
+        _phone = member.phone;
+        _points = member.points;
+        _memberDocId = member.id ?? '';
+        if (member.displayName != null && member.displayName!.isNotEmpty) {
+          _displayName = member.displayName!;
+        }
         _isSubmitting = false;
         _screenState = 'profile';
       });
 
-      _fetchRecentOrders(phone);
+      // Start real-time Firestore listeners for points and orders
+      _subscribeToMemberUpdates(member.phone, docId: member.id);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ ToTo Cafe'),
+          content: Text('เข้าสู่ระบบสมาชิกสำเร็จ!'),
           backgroundColor: _kGoldColor,
         ),
       );
@@ -235,11 +266,118 @@ class _MemberScreenState extends State<MemberScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('เกิดข้อผิดพลาดในการสมัครสมาชิก: $e'),
+          content: Text('เกิดข้อผิดพลาด: $e'),
           backgroundColor: Colors.red,
         ),
       );
     }
+  }
+
+  Future<void> _showEditPhoneDialog() async {
+    final editController = TextEditingController(text: _phone);
+    final formKey = GlobalKey<FormState>();
+    bool isSaving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: _kCardColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            'แก้ไขเบอร์โทรศัพท์',
+            style: TextStyle(color: _kGoldColor, fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'คะแนนสะสมและประวัติของคุณจะยังคงอยู่ครบเหมือนเดิม',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: editController,
+                  keyboardType: TextInputType.phone,
+                  maxLength: 10,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'เบอร์โทรใหม่',
+                    labelStyle: const TextStyle(color: _kGoldColor),
+                    counterText: '',
+                    filled: true,
+                    fillColor: _kBgColor,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  validator: (val) {
+                    final t = val?.trim() ?? '';
+                    if (t.length != 10 || !RegExp(r'^[0-9]+$').hasMatch(t)) {
+                      return 'กรุณากรอกเบอร์โทร 10 หลัก';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('ยกเลิก', style: TextStyle(color: Colors.white60)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kGoldColor,
+                foregroundColor: _kBgColor,
+              ),
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() => isSaving = true);
+                      final newPhone = editController.text.trim();
+                      try {
+                        final targetDocId = _memberDocId.isNotEmpty
+                            ? _memberDocId
+                            : (_lineUserId.isNotEmpty ? _lineUserId : '');
+                        if (targetDocId.isNotEmpty) {
+                          await MemberService().updateMemberPhone(targetDocId, newPhone);
+                        }
+                        if (mounted) {
+                          setState(() {
+                            _phone = newPhone;
+                          });
+                          _subscribeToMemberUpdates(newPhone, docId: targetDocId);
+                        }
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('อัปเดตเบอร์โทรศัพท์สำเร็จ!'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => isSaving = false);
+                        if (ctx.mounted) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(content: Text('เกิดข้อผิดพลาด: $e'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: _kBgColor))
+                  : const Text('บันทึก'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -267,7 +405,7 @@ class _MemberScreenState extends State<MemberScreen> {
       case 'register':
         return _buildRegisterView();
       case 'profile':
-        return _buildProfileView();
+        return _buildProfileState();
       default:
         return _buildLoadingView();
     }
@@ -301,7 +439,7 @@ class _MemberScreenState extends State<MemberScreen> {
     );
   }
 
-  // ── 2. Registration State ───────────────────────────────────────────────────
+  // ── 2. Registration / Login State ──────────────────────────────────────────
 
   Widget _buildRegisterView() {
     return Container(
@@ -323,7 +461,7 @@ class _MemberScreenState extends State<MemberScreen> {
         children: [
           // Title
           const Text(
-            'สมัครสมาชิก ToTo Café',
+            'ระบบสมาชิก ToTo Café',
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
@@ -360,7 +498,15 @@ class _MemberScreenState extends State<MemberScreen> {
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
+          const Text(
+            'กรอกเบอร์โทรศัพท์เพื่อเข้าสู่ระบบหรือสะสมแต้ม',
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.white70,
+            ),
+          ),
+          const SizedBox(height: 20),
 
           // TextField for phone number
           TextField(
@@ -393,7 +539,7 @@ class _MemberScreenState extends State<MemberScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Button "สมัครสมาชิก"
+          // Button "เข้าสู่ระบบ / สมัครสมาชิก"
           SizedBox(
             width: double.infinity,
             height: 50,
@@ -417,7 +563,7 @@ class _MemberScreenState extends State<MemberScreen> {
                       ),
                     )
                   : const Text(
-                      'สมัครสมาชิก',
+                      'เข้าสู่ระบบ / สมัครสมาชิก',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -431,6 +577,26 @@ class _MemberScreenState extends State<MemberScreen> {
   }
 
   // ── 3. Profile State ────────────────────────────────────────────────────────
+  // Field names used: data['points'], data['phone']
+  /// Builds profile state and verifies points is read using exact field name 'points'.
+  Widget _buildProfileState([Map<String, dynamic>? data]) {
+    if (data != null) {
+      // Reads data['points'] (exact field name, not 'point' or other variants)
+      _points = (data['points'] as num?)?.toInt() ?? _points;
+      if (data.containsKey('phone')) {
+        _phone = (data['phone'] ?? '').toString();
+      }
+      final name = (data['displayName'] ?? data['display_name'] ?? '').toString();
+      if (name.isNotEmpty) {
+        _displayName = name;
+      }
+      final pic = (data['pictureUrl'] ?? data['picture_url'] ?? '').toString();
+      if (pic.isNotEmpty) {
+        _pictureUrl = pic;
+      }
+    }
+    return _buildProfileView();
+  }
 
   Widget _buildProfileView() {
     return Column(
@@ -493,7 +659,31 @@ class _MemberScreenState extends State<MemberScreen> {
                   color: Colors.white70,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 6),
+
+              // Switch phone button
+              InkWell(
+                onTap: _showEditPhoneDialog,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.edit_outlined, size: 16, color: _kGoldColor),
+                      SizedBox(width: 4),
+                      Text(
+                        'แก้ไขเบอร์โทรศัพท์',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: _kGoldColor,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
 
               // Points Card
               Container(
@@ -517,16 +707,38 @@ class _MemberScreenState extends State<MemberScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // Subtitle: "ทุก 100 แต้ม = 1 บาท"
-                    const Text(
-                      'ทุก 100 แต้ม = 1 บาท',
-                      style: TextStyle(
+                    // Subtitle: "ทุก 20 บาท = 1 แต้ม (1 แต้ม = 1 บาท)"
+                    Text(
+                      'มูลค่า $_points บาท (1 แต้ม = 1 บาท)',
+                      style: const TextStyle(
                         fontSize: 14,
                         color: Colors.white70,
                       ),
                     ),
                   ],
                 ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Member QR Code
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: QrImageView(
+                  data: _lineUserId.isNotEmpty ? _lineUserId : _phone,
+                  version: QrVersions.auto,
+                  size: 130,
+                  backgroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'สแกน QR บัตรสมาชิกที่ตู้ Kiosk หรือหน้าร้าน',
+                style: TextStyle(color: Colors.white60, fontSize: 11),
               ),
             ],
           ),

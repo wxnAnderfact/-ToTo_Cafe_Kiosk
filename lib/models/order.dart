@@ -11,7 +11,8 @@ enum OrderStatus {
   paid('paid'),
   preparing('preparing'),
   ready('ready'),
-  completed('completed');
+  completed('completed'),
+  cancelled('cancelled');
 
   const OrderStatus(this.value);
   final String value;
@@ -170,6 +171,10 @@ class Order {
     this.memberId,
     this.memberPhone,
     this.discount = 0.0,
+    this.redeemedPoints = 0,
+    this.pointsEarned = 0,
+    this.receivedAmount,
+    this.changeAmount,
     this.createdAt,
   });
 
@@ -199,6 +204,18 @@ class Order {
   /// Member points discount amount in THB.
   final double discount;
 
+  /// Points redeemed for this order.
+  final int redeemedPoints;
+
+  /// Points earned from this order.
+  final int pointsEarned;
+
+  /// Cash received from customer (for cash orders).
+  final double? receivedAmount;
+
+  /// Change returned to customer (for cash orders).
+  final double? changeAmount;
+
   final DateTime? createdAt;
 
   // ── Firestore serialization ─────────────────────────────────────────
@@ -220,6 +237,10 @@ class Order {
       memberId: json['member_id'] as String?,
       memberPhone: (json['memberPhone'] ?? json['member_phone']) as String?,
       discount: (json['discount'] as num?)?.toDouble() ?? 0.0,
+      redeemedPoints: (json['redeemed_points'] ?? json['redeemedPoints'] as num?)?.toInt() ?? 0,
+      pointsEarned: (json['points_earned'] ?? json['pointsEarned'] as num?)?.toInt() ?? 0,
+      receivedAmount: (json['received_amount'] ?? json['receivedAmount'] as num?)?.toDouble(),
+      changeAmount: (json['change_amount'] ?? json['changeAmount'] as num?)?.toDouble(),
       createdAt: (json['created_at'] as Timestamp?)?.toDate(),
     );
   }
@@ -241,6 +262,10 @@ class Order {
       if (memberId != null) 'member_id': memberId,
       if (memberPhone != null) 'memberPhone': memberPhone,
       if (discount > 0) 'discount': discount,
+      if (redeemedPoints > 0) 'redeemed_points': redeemedPoints,
+      if (pointsEarned > 0) 'points_earned': pointsEarned,
+      if (receivedAmount != null) 'received_amount': receivedAmount,
+      if (changeAmount != null) 'change_amount': changeAmount,
       'created_at': createdAt != null
           ? Timestamp.fromDate(createdAt!)
           : FieldValue.serverTimestamp(),
@@ -259,6 +284,10 @@ class Order {
     String? memberId,
     String? memberPhone,
     double? discount,
+    int? redeemedPoints,
+    int? pointsEarned,
+    double? receivedAmount,
+    double? changeAmount,
     DateTime? createdAt,
   }) {
     return Order(
@@ -273,6 +302,10 @@ class Order {
       memberId: memberId ?? this.memberId,
       memberPhone: memberPhone ?? this.memberPhone,
       discount: discount ?? this.discount,
+      redeemedPoints: redeemedPoints ?? this.redeemedPoints,
+      pointsEarned: pointsEarned ?? this.pointsEarned,
+      receivedAmount: receivedAmount ?? this.receivedAmount,
+      changeAmount: changeAmount ?? this.changeAmount,
       createdAt: createdAt ?? this.createdAt,
     );
   }

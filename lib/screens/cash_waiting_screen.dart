@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/order.dart';
 import '../providers/cart_provider.dart';
 import '../providers/locale_provider.dart';
-import '../services/member_service.dart';
+import '../services/order_service.dart';
 import '../theme.dart';
 import '../widgets/language_toggle.dart';
-import 'standby_screen.dart';
 
 typedef CashWaitingScreen = CashConfirmScreen;
 
@@ -61,20 +61,54 @@ class _CashConfirmScreenState extends State<CashConfirmScreen> {
   void _onComplete() {
     _timer?.cancel();
     if (!mounted) return;
-    final phone = widget.order.memberPhone ?? context.read<CartProvider>().memberPhone;
-    if (phone != null && phone.isNotEmpty) {
-      MemberService().addPointsForPurchase(
-        phone,
-        widget.order.total.toInt(),
-      ).catchError((e) {
-        debugPrint('[Cash] Error adding points for purchase: $e');
-      });
-    }
     context.read<CartProvider>().clear();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const StandbyScreen()),
-      (route) => false,
+    if (Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    context.go('/kiosk');
+  }
+
+  Future<void> _onCancelOrder() async {
+    final locale = context.read<LocaleProvider>();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(locale.t('ยกเลิกการสั่งซื้อ?', 'Cancel Order?')),
+        content: Text(
+          locale.t(
+            'คุณต้องการยกเลิกคำสั่งซื้อนี้ใช่หรือไม่?',
+            'Do you want to cancel this order?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(locale.t('ไม่ยกเลิก', 'No, keep order')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(locale.t('ยืนยันยกเลิก', 'Yes, cancel')),
+          ),
+        ],
+      ),
     );
+
+    if (confirm == true) {
+      _timer?.cancel();
+      if (widget.order.id != null) {
+        try {
+          await OrderService().cancelOrder(widget.order.id!);
+        } catch (_) {}
+      }
+      if (mounted) {
+        context.read<CartProvider>().clear();
+        _onComplete();
+      }
+    }
   }
 
   @override
@@ -226,20 +260,42 @@ class _CashConfirmScreenState extends State<CashConfirmScreen> {
 
                     const SizedBox(height: kSpace32),
 
-                    // Manual "กลับหน้าแรก" button
-                    SizedBox(
-                      width: 240,
-                      height: 52,
-                      child: FilledButton(
-                        onPressed: _onComplete,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: kColorPrimary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(kRadiusPill),
+                    // Manual action buttons
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 170,
+                          height: 50,
+                          child: FilledButton(
+                            onPressed: _onComplete,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: kColorPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(kRadiusPill),
+                              ),
+                            ),
+                            child: Text(locale.t('กลับหน้าแรก', 'Return to Home')),
                           ),
                         ),
-                        child: Text(locale.t('กลับหน้าแรก', 'Return to Home')),
-                      ),
+                        const SizedBox(width: kSpace12),
+                        SizedBox(
+                          width: 160,
+                          height: 50,
+                          child: OutlinedButton.icon(
+                            onPressed: _onCancelOrder,
+                            icon: const Icon(Icons.close, size: 18),
+                            label: Text(locale.t('ยกเลิกออร์เดอร์', 'Cancel Order')),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red.shade700,
+                              side: BorderSide(color: Colors.red.shade300),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(kRadiusPill),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

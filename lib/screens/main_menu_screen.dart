@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme.dart';
@@ -41,16 +43,98 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       _categories[_selectedCategoryIndex].key;
 
   Stream<List<model.MenuItem>>? _menuStream;
+  Timer? _inactivityTimer;
 
   @override
   void initState() {
     super.initState();
+    _startInactivityTimer();
     // Delay slightly to ensure context is fully ready for Provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
       setState(() {
         _updateStream();
       });
     });
+  }
+
+  void _startInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(const Duration(minutes: 1), _onInactivityTimeout);
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(const Duration(minutes: 1), _onInactivityTimeout);
+  }
+
+  void _onInactivityTimeout() {
+    if (!mounted) return;
+    // Only return to home if MainMenuScreen is currently the active top route
+    if (ModalRoute.of(context)?.isCurrent != true) {
+      _inactivityTimer?.cancel();
+      return;
+    }
+    // Dismiss any open modal/dialog first
+    try {
+      Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
+    } catch (_) {}
+    // Clear cart and return to standby screen
+    context.read<CartProvider>().clear();
+    try {
+      context.go('/kiosk');
+    } catch (_) {
+      Navigator.of(context).pushReplacementNamed('/kiosk');
+    }
+  }
+
+  Future<void> _onBackToHome(BuildContext context) async {
+    final cart = context.read<CartProvider>();
+    final locale = context.read<LocaleProvider>();
+
+    if (cart.isNotEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(locale.t('ย้อนกลับหน้าแรก?', 'Return to Home?')),
+          content: Text(
+            locale.t(
+              'รายการในตะกร้าจะถูกยกเลิก ต้องการกลับสู่หน้าแรกใช่หรือไม่?',
+              'Your cart items will be cleared. Do you want to return to home screen?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(locale.t('อยู่ต่อ', 'Stay')),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(locale.t('กลับหน้าแรก', 'Return to Home')),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
+    _inactivityTimer?.cancel();
+    if (!context.mounted) return;
+    context.read<CartProvider>().clear();
+    try {
+      context.go('/kiosk');
+    } catch (_) {
+      Navigator.of(context).pushReplacementNamed('/kiosk');
+    }
+  }
+
+  @override
+  void dispose() {
+    _inactivityTimer?.cancel();
+    super.dispose();
   }
 
   void _updateStream() {
@@ -74,12 +158,16 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   // ── Navigation ──────────────────────────────────────────────────────────
 
-  void _onProceedToPayment() {
-    Navigator.of(context).push(
+  Future<void> _onProceedToPayment() async {
+    _inactivityTimer?.cancel();
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => const CheckoutScreen(),
       ),
     );
+    if (mounted) {
+      _startInactivityTimer();
+    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -88,39 +176,44 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   Widget build(BuildContext context) {
     final locale = context.watch<LocaleProvider>();
 
-    return Scaffold(
-      body: Row(
-        children: [
-          // ═══════════════════════════════════════════════════════════════
-          // LEFT COLUMN — Category Navigation (~180px)
-          // ═══════════════════════════════════════════════════════════════
-          Expanded(
-            flex: 2,
-            child: _buildCategoryNav(locale),
-          ),
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _resetInactivityTimer(),
+      onPointerMove: (_) => _resetInactivityTimer(),
+      onPointerUp: (_) => _resetInactivityTimer(),
+      child: Scaffold(
+        body: Row(
+          children: [
+            // ═══════════════════════════════════════════════════════════════
+            // LEFT COLUMN — Category Navigation (~160px on iPad)
+            // ═══════════════════════════════════════════════════════════════
+            SizedBox(
+              width: 160,
+              child: _buildCategoryNav(locale),
+            ),
 
-          // Vertical divider
-          const VerticalDivider(width: 1),
+            // Vertical divider
+            const VerticalDivider(width: 1),
 
-          // ═══════════════════════════════════════════════════════════════
-          // CENTER COLUMN — Product Grid (flexible)
-          // ═══════════════════════════════════════════════════════════════
-          Expanded(
-            flex: 5,
-            child: _buildProductGrid(locale),
-          ),
+            // ═══════════════════════════════════════════════════════════════
+            // CENTER COLUMN — Product Grid (flexible fill)
+            // ═══════════════════════════════════════════════════════════════
+            Expanded(
+              child: _buildProductGrid(locale),
+            ),
 
-          // Vertical divider
-          const VerticalDivider(width: 1),
+            // Vertical divider
+            const VerticalDivider(width: 1),
 
-          // ═══════════════════════════════════════════════════════════════
-          // RIGHT COLUMN — Cart / Order Summary (~300px)
-          // ═══════════════════════════════════════════════════════════════
-          Expanded(
-            flex: 3,
-            child: _buildCartPanel(locale),
-          ),
-        ],
+            // ═══════════════════════════════════════════════════════════════
+            // RIGHT COLUMN — Cart / Order Summary (~280px on iPad)
+            // ═══════════════════════════════════════════════════════════════
+            SizedBox(
+              width: 280,
+              child: _buildCartPanel(locale),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -132,34 +225,62 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
       color: kColorSurface,
       child: Column(
         children: [
-          // Header / logo area
+          // Header / logo area + Back to Home button
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+            child: Column(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF3F5F35), width: 2),
-                    image: const DecorationImage(
-                      image: AssetImage('assets/images/logo_toto.jpg'),
-                      fit: BoxFit.cover,
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF3F5F35), width: 2),
+                        image: const DecorationImage(
+                          image: AssetImage('assets/images/logo_toto.jpg'),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "ToTo's Cafe",
+                        style: GoogleFonts.playfairDisplay(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF4A2F1E),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "ToTo's Cafe",
-                    style: GoogleFonts.playfairDisplay(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF4A2F1E),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _onBackToHome(context),
+                    icon: const Icon(Icons.home_outlined, size: 18),
+                    label: Text(
+                      locale.t('กลับหน้าแรก', 'Home'),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF4A2F1E),
+                      backgroundColor: const Color(0xFFEDE5D4),
+                      side: const BorderSide(color: Color(0xFFCBB89F), width: 1.2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
                   ),
                 ),
               ],
@@ -186,6 +307,34 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                   },
                 );
               },
+            ),
+          ),
+
+          const Divider(height: 1),
+
+          // Back to Home button
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: () => _onBackToHome(context),
+                icon: const Icon(Icons.home_outlined, size: 20),
+                label: Text(
+                  locale.t('กลับหน้าแรก', 'Back to Home'),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF6B4A35),
+                  side: const BorderSide(color: Color(0xFFD5C4B1), width: 1.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -327,6 +476,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       imagePath: menuItem.imageUrl ??
                           'assets/images/hot_coffee.png',
                       onAddToCart: () async {
+                        _inactivityTimer?.cancel();
                         final item = await ItemCustomizationModal.show(
                           context,
                           menuItemId: menuItem.id ?? '',
@@ -339,6 +489,9 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                         );
                         if (item != null && context.mounted) {
                           context.read<CartProvider>().addItem(item);
+                        }
+                        if (mounted) {
+                          _startInactivityTimer();
                         }
                       },
                     );
@@ -783,7 +936,8 @@ class _CartLineItem extends StatelessWidget {
                     ),
                     _StepperButton(
                       icon: Icons.add,
-                      onTap: onIncrement,
+                      onTap: item.quantity < 99 ? onIncrement : null,
+                      disabled: item.quantity >= 99,
                     ),
                   ],
                 ),
@@ -800,11 +954,13 @@ class _CartLineItem extends StatelessWidget {
 class _StepperButton extends StatelessWidget {
   const _StepperButton({
     required this.icon,
-    required this.onTap,
+    this.onTap,
+    this.disabled = false,
   });
 
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool disabled;
 
   @override
   Widget build(BuildContext context) {
@@ -817,7 +973,11 @@ class _StepperButton extends StatelessWidget {
           shape: BoxShape.circle,
           color: Colors.transparent,
         ),
-        child: Icon(icon, size: 16, color: kColorTextBody),
+        child: Icon(
+          icon,
+          size: 16,
+          color: disabled ? kColorTextMuted.withValues(alpha: 0.3) : kColorTextBody,
+        ),
       ),
     );
   }
