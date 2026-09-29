@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ------------------------------------------------------------------------
+    // Orders collection
+    // ------------------------------------------------------------------------
+    // อนุญาตให้อ่าน document เดี่ยวได้แบบ public เฉพาะระดับ get รายเอกสารด้วย orderId ตรงๆ
+    // ห้ามอนุญาตให้ list/query ทั้งคอลเลกชัน (list: if false;)
+    // คง rule write ไว้เหมือนเดิม (allow write: if true;)
+    match /orders/{orderId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if true;
+    }
+
+    // ------------------------------------------------------------------------
+    // Other collections (คง rule เดิมไว้ทั้งหมด)
+    // ------------------------------------------------------------------------
+    match /menu_items/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /members/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /connection_tests/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /shifts/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

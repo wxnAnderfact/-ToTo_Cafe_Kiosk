@@ -16,6 +16,7 @@ import '../theme.dart';
 import '../utils/customization_rules.dart';
 import '../utils/printer.dart';
 import '../widgets/language_toggle.dart';
+import '../widgets/order_qr_code.dart';
 
 // ---------------------------------------------------------------------------
 // PromptPay ID — store your phone/national-ID in your .env / app config.
@@ -1354,6 +1355,14 @@ class _KioskReceiptDialog extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: kSpace16),
+
+                  if (order.id != null && order.id!.isNotEmpty) ...[
+                    OrderQrCode(
+                      orderId: order.id!,
+                      caption: locale.t('สแกนรับใบเสร็จออนไลน์', 'Scan for digital receipt'),
+                    ),
+                    const SizedBox(height: kSpace16),
+                  ],
 
                   // Two buttons:
                   // 1. 🖨️ พิมพ์ใบเสร็จ -> thermal receipt print

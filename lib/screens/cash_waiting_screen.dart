@@ -8,6 +8,7 @@ import '../providers/locale_provider.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
 import '../widgets/language_toggle.dart';
+import '../widgets/order_qr_code.dart';
 
 typedef CashWaitingScreen = CashConfirmScreen;
 
@@ -219,6 +220,14 @@ class _CashConfirmScreenState extends State<CashConfirmScreen> {
                         ],
                       ),
                     ),
+
+                    if (widget.order.id != null && widget.order.id!.isNotEmpty) ...[
+                      const SizedBox(height: kSpace24),
+                      OrderQrCode(
+                        orderId: widget.order.id!,
+                        caption: locale.t('สแกนเพื่อดูสถานะคิว', 'Scan to track queue status'),
+                      ),
+                    ],
 
                     const SizedBox(height: kSpace32),
 

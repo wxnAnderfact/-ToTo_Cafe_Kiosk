@@ -7,6 +7,7 @@ import 'screens/checkout_screen.dart';
 import 'screens/qr_payment_screen.dart';
 import 'screens/cashier_pos_screen.dart';
 import 'screens/member_screen.dart';
+import 'screens/receipt/order_status_page.dart';
 
 // ---------------------------------------------------------------------------
 // ToTo Cafe — GoRouter configuration
@@ -72,6 +73,14 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/member',
       builder: (context, state) => const MemberScreen(),
+    ),
+
+    // ── Digital Receipt / Order Status route ──────────────────────────────
+    GoRoute(
+      path: '/receipt/:orderId',
+      builder: (context, state) => OrderStatusPage(
+        orderId: state.pathParameters['orderId']!,
+      ),
     ),
   ],
 );
