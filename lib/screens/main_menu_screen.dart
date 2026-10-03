@@ -599,37 +599,6 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                 ),
                 child: Column(
                   children: [
-                    // Subtotal row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          locale.t('ราคาก่อนภาษี', 'Subtotal'),
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        Text(
-                          '฿${cart.subtotal.toStringAsFixed(2)}',
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: kSpace4),
-                    // VAT row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          locale.t('VAT 7%', 'VAT 7%'),
-                          style: theme.textTheme.bodySmall,
-                        ),
-                        Text(
-                          '฿${cart.vat.toStringAsFixed(2)}',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                    const Divider(height: kSpace24),
                     // Grand total
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

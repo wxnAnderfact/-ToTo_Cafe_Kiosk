@@ -371,16 +371,6 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                           style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('VAT 7%:',
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 13)),
-                      Text('฿${order.vat.toStringAsFixed(2)}',
-                          style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
-                    ],
-                  ),
                   const SizedBox(height: 8),
                   const Divider(thickness: 1),
                   const SizedBox(height: 4),
@@ -2599,14 +2589,6 @@ class _CounterOrderDialogState extends State<_CounterOrderDialog> {
                                   Text('฿${_subtotal.toStringAsFixed(2)}', style: theme.textTheme.bodySmall),
                                 ],
                               ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('VAT 7%:', style: theme.textTheme.bodySmall),
-                                  Text('฿${_vat.toStringAsFixed(2)}', style: theme.textTheme.bodySmall),
-                                ],
-                              ),
                               if (_memberDiscount > 0) ...[
                                 const SizedBox(height: 4),
                                 Row(
@@ -3319,21 +3301,6 @@ class _ReceiptDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
 
-                    // VAT 7%
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'VAT 7%:',
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
-                        ),
-                        Text(
-                          '฿${order.vat.toStringAsFixed(2)}',
-                          style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
 
                     // รวมทั้งหมด: ฿{total} (bold)
                     Row(

@@ -755,28 +755,6 @@ class OrderStatusPage extends StatelessWidget {
           ),
           const SizedBox(height: 2),
 
-          // VAT 7%
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'VAT 7%:',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: kCoffee700,
-                ),
-              ),
-              Text(
-                '฿${order.vat.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: kCoffee700,
-                ),
-              ),
-            ],
-          ),
 
           // Points discount if any
           if (order.redeemedPoints > 0 || order.discount > 0) ...[

@@ -487,20 +487,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             color: const Color(0xFFFAF7EE),
             child: Column(
               children: [
-                _TotalRow(
-                  label: locale.t('ยอดรวมก่อนภาษี (Subtotal)', 'Subtotal'),
-                  value: '฿${cart.priceBreakdown.subtotal.toStringAsFixed(2)}',
-                  theme: theme,
-                  isMuted: true,
-                ),
-                const SizedBox(height: 8),
-                _TotalRow(
-                  label: locale.t('ภาษีมูลค่าเพิ่ม 7% (VAT)', 'VAT 7%'),
-                  value: '฿${cart.priceBreakdown.vat.toStringAsFixed(2)}',
-                  theme: theme,
-                  isMuted: true,
-                ),
                 if (cart.discount > 0) ...[
+                  _TotalRow(
+                    label: locale.t('ยอดรวม (Total)', 'Total'),
+                    value: '฿${cart.priceBreakdown.subtotal.toStringAsFixed(2)}',
+                    theme: theme,
+                    isMuted: true,
+                  ),
                   const SizedBox(height: 8),
                   _TotalRow(
                     label:
@@ -510,11 +503,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     valueColor: kColorPrimary,
                     isBold: true,
                   ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(height: 1, thickness: 1.2),
+                  ),
                 ],
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Divider(height: 1, thickness: 1.2),
-                ),
                 _TotalRow(
                   label: locale.t('ยอดสุทธิ (Grand Total)', 'Grand Total'),
                   value: '฿${cart.totalAfterDiscount.toStringAsFixed(2)}',

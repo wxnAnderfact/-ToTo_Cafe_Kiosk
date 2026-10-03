@@ -133,15 +133,16 @@ void printThermalReceipt(Order order, {String? storeName = "ToTo's Cafe"}) {
   ${itemsHtml.toString()}
 
   <div class="divider"></div>
+  ${order.discount > 0 ? '''
   <div class="row">
-    <span>ราคาก่อนภาษี (Subtotal):</span>
+    <span>ยอดรวม (Total):</span>
     <span>฿${order.subtotal.toStringAsFixed(2)}</span>
   </div>
   <div class="row">
-    <span>VAT 7%:</span>
-    <span>฿${order.vat.toStringAsFixed(2)}</span>
+    <span>ส่วนลดสมาชิก (Discount):</span>
+    <span>-฿${order.discount.toStringAsFixed(2)}</span>
   </div>
-
+  ''' : ''}
   <div class="double-divider"></div>
   <div class="row grand-total">
     <span>ยอดสุทธิ (Grand Total):</span>

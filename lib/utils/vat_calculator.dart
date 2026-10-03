@@ -4,19 +4,17 @@
 /// per project rules in AGENTS.md:
 ///   "แยกฟังก์ชันคำนวณ VAT ออกมาต่างหาก ต้องเทสต์ได้อิสระจาก UI"
 library;
-/// The VAT rate used across the application (7%).
-const double kVatRate = 0.07;
+/// The VAT rate used across the application (0% when VAT is disabled).
+const double kVatRate = 0.0;
 
-/// Calculate VAT amount from a subtotal (price before tax).
-///
-/// Returns the VAT portion only (not the grand total).
+/// Calculate VAT amount from a subtotal (returns 0.0 when VAT is disabled).
 double calculateVat(double subtotal) {
-  return double.parse((subtotal * kVatRate).toStringAsFixed(2));
+  return 0.0;
 }
 
 /// Calculate the grand total (subtotal + VAT).
 double calculateGrandTotal(double subtotal) {
-  return double.parse((subtotal + calculateVat(subtotal)).toStringAsFixed(2));
+  return double.parse(subtotal.toStringAsFixed(2));
 }
 
 /// A breakdown of an order's pricing.
@@ -33,11 +31,11 @@ class PriceBreakdown {
 
   /// Compute a full price breakdown from a subtotal.
   factory PriceBreakdown.fromSubtotal(double subtotal) {
-    final vat = calculateVat(subtotal);
+    final roundedSubtotal = double.parse(subtotal.toStringAsFixed(2));
     return PriceBreakdown(
-      subtotal: subtotal,
-      vat: vat,
-      grandTotal: double.parse((subtotal + vat).toStringAsFixed(2)),
+      subtotal: roundedSubtotal,
+      vat: 0.0,
+      grandTotal: roundedSubtotal,
     );
   }
 }

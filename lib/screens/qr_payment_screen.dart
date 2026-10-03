@@ -721,18 +721,6 @@ class _QrPaymentScreenState extends State<QrPaymentScreen> {
                 // Totals
                 const Divider(),
                 const SizedBox(height: kSpace8),
-                _TotalRow(
-                  label: locale.t('ราคาก่อนภาษี', 'Subtotal'),
-                  value: '฿${order.subtotal.toStringAsFixed(2)}',
-                ),
-                const SizedBox(height: kSpace4),
-                _TotalRow(
-                  label: 'VAT 7%',
-                  value: '฿${order.vat.toStringAsFixed(2)}',
-                  muted: true,
-                ),
-                const SizedBox(height: kSpace8),
-                const Divider(),
                 const SizedBox(height: kSpace8),
                 _TotalRow(
                   label: locale.t('ยอดสุทธิ', 'Grand Total'),
@@ -1000,22 +988,18 @@ class _TotalRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.bold = false,
-    this.muted = false,
   });
 
   final String label;
   final String value;
   final bool bold;
-  final bool muted;
 
   @override
   Widget build(BuildContext context) {
     final base = Theme.of(context).textTheme.bodyMedium;
     final style = bold
         ? base?.copyWith(fontWeight: FontWeight.w700)
-        : muted
-            ? base?.copyWith(color: kColorTextMuted)
-            : base;
+        : base;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1208,21 +1192,6 @@ class _KioskReceiptDialog extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
 
-                        // VAT 7%
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'VAT 7%:',
-                              style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
-                            ),
-                            Text(
-                              '฿${order.vat.toStringAsFixed(2)}',
-                              style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: kCoffee700),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
 
                         // Grand Total (bold)
                         Row(
