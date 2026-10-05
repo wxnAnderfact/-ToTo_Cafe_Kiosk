@@ -5,6 +5,7 @@ import '../../models/order.dart';
 import '../../providers/locale_provider.dart';
 import '../../theme.dart';
 import '../../utils/customization_rules.dart';
+import '../../utils/receipt_sharing.dart';
 import '../../widgets/language_toggle.dart';
 
 /// Digital Receipt / Live Order Status Page
@@ -12,13 +13,54 @@ import '../../widgets/language_toggle.dart';
 /// Route: `/receipt/:orderId`
 /// Accessible on mobile via QR code scan or direct URL.
 /// No login required, read-only, real-time Firestore stream.
-class OrderStatusPage extends StatelessWidget {
+class OrderStatusPage extends StatefulWidget {
   const OrderStatusPage({
     super.key,
     required this.orderId,
   });
 
   final String orderId;
+
+  @override
+  State<OrderStatusPage> createState() => _OrderStatusPageState();
+}
+
+class _OrderStatusPageState extends State<OrderStatusPage> {
+  final GlobalKey _receiptCardKey = GlobalKey();
+  bool _isSharing = false;
+
+  Future<void> _shareReceipt(Order order) async {
+    if (_isSharing) return;
+    setState(() => _isSharing = true);
+
+    try {
+      final bytes = await captureWidgetToImage(_receiptCardKey);
+      if (bytes != null && mounted) {
+        final queueStr = order.queueNumber.toString().padLeft(3, '0');
+        final success = await shareOrDownloadReceipt(
+          bytes: bytes,
+          filename: 'toto_receipt_queue_$queueStr.png',
+          title: 'ใบเสร็จ ToTo Cafe คิว #$queueStr',
+          text: 'ใบเสร็จรับเงิน ToTo Cafe คิว #$queueStr ยอดรวม ฿${order.total.toStringAsFixed(2)}',
+        );
+
+        if (mounted && success) {
+          final loc = context.read<LocaleProvider>();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(loc.t('แชร์ / บันทึกรูปภาพใบเสร็จเรียบร้อย', 'Receipt image shared / saved successfully')),
+              backgroundColor: kColorPrimary,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[OrderStatusPage] Error sharing receipt: $e');
+    } finally {
+      if (mounted) setState(() => _isSharing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +73,7 @@ class OrderStatusPage extends StatelessWidget {
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
               .collection('orders')
-              .doc(orderId)
+              .doc(widget.orderId)
               .snapshots(),
           builder: (context, snapshot) {
             // Top branding & language bar
@@ -144,8 +186,8 @@ class OrderStatusPage extends StatelessWidget {
                         const SizedBox(height: kSpace8),
                         Text(
                           locale.t(
-                            'กรุณาตรวจสอบลิงก์หรือติดต่อพนักงานที่เคาน์เตอร์\n(Order ID: $orderId)',
-                            'Please check the link or contact staff at counter.\n(Order ID: $orderId)',
+                            'กรุณาตรวจสอบลิงก์หรือติดต่อพนักงานที่เคาน์เตอร์\n(Order ID: ${widget.orderId})',
+                            'Please check the link or contact staff at counter.\n(Order ID: ${widget.orderId})',
                           ),
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -435,6 +477,36 @@ class OrderStatusPage extends StatelessWidget {
 
                         // Thermal Receipt Style Paper Card
                         _buildReceiptCard(context, order, locale, theme),
+                        const SizedBox(height: 16),
+
+                        // Share / Save Receipt Image Button
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton.icon(
+                            onPressed: _isSharing ? null : () => _shareReceipt(order),
+                            icon: _isSharing
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2),
+                                  )
+                                : const Icon(Icons.share, size: 20),
+                            label: Text(
+                              locale.t(
+                                '📲 แชร์ / บันทึกรูปภาพใบเสร็จ',
+                                '📲 Share / Save Receipt Image',
+                              ),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kColorPrimary,
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ),
                       ],
 
                       const SizedBox(height: kSpace32),
@@ -608,8 +680,10 @@ class OrderStatusPage extends StatelessWidget {
         ? 'QR PromptPay'
         : locale.t('เงินสด', 'Cash');
 
-    return Container(
-      padding: const EdgeInsets.all(20),
+    return RepaintBoundary(
+      key: _receiptCardKey,
+      child: Container(
+        padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: kCream,
         borderRadius: BorderRadius.circular(kRadiusCard),
@@ -926,6 +1000,7 @@ class OrderStatusPage extends StatelessWidget {
           ],
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

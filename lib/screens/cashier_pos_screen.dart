@@ -16,17 +16,12 @@ import '../services/menu_service.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
 import '../utils/customization_rules.dart';
-import '../utils/printer.dart';
 import '../utils/vat_calculator.dart';
+import '../config/payment_config.dart';
 import '../widgets/item_customization_modal.dart';
 import '../widgets/language_toggle.dart';
 
-// ---------------------------------------------------------------------------
-// PromptPay ID — injected via --dart-define:
-//   flutter run --dart-define=PROMPTPAY_ID=0812345678
-// ---------------------------------------------------------------------------
-const String _kPromptPayId =
-    String.fromEnvironment('PROMPTPAY_ID', defaultValue: '');
+const String _kPromptPayId = kPromptPayId;
 
 enum PosFilter { all, cash, qr }
 
@@ -452,30 +447,59 @@ class _CashierPosScreenState extends State<CashierPosScreen> {
                   ),
                   const SizedBox(height: kSpace24),
 
-                  // Action Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            printReceipt();
-                          },
-                          icon: const Icon(Icons.print, size: 20),
-                          label: Text(locale.t('🖨️ พิมพ์ใบเสร็จ', '🖨️ Print Receipt')),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: kColorPrimary,
-                            foregroundColor: kColorWhite,
-                          ),
+                  // Digital Receipt QR Code
+                  if (order.id != null && order.id!.isNotEmpty) ...[
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: kColorBorder),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
+                          ],
+                        ),
+                        child: QrImageView(
+                          data: 'https://toto-cafe-kiosk.web.app/receipt/${order.id}',
+                          version: QrVersions.auto,
+                          size: 140,
+                          backgroundColor: Colors.white,
+                          eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: kCoffee900),
+                          dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: kCoffee900),
                         ),
                       ),
-                      const SizedBox(width: kSpace12),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(bottomSheetContext).pop(),
-                          child: Text(locale.t('ปิด', 'Close')),
+                    ),
+                    const SizedBox(height: 6),
+                    Center(
+                      child: Text(
+                        locale.t('📲 สแกน QR เพื่อดูใบเสร็จออนไลน์', '📲 Scan QR for Digital Receipt'),
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: kCoffee700,
                         ),
                       ),
-                    ],
+                    ),
+                  ],
+                  const SizedBox(height: kSpace16),
+
+                  // Action Button
+                  SizedBox(
+                    height: 44,
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.of(bottomSheetContext).pop(),
+                      icon: const Icon(Icons.check, size: 20),
+                      label: Text(locale.t('ปิด', 'Close')),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kColorPrimary,
+                        foregroundColor: kColorWhite,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -2760,6 +2784,24 @@ class _CashPaymentDialogState extends State<_CashPaymentDialog> {
     });
   }
 
+  void _addAmount(double amount) {
+    final current = double.tryParse(_cashController.text.trim()) ?? 0.0;
+    final newTotal = current + amount;
+    setState(() {
+      if (newTotal == newTotal.roundToDouble()) {
+        _cashController.text = newTotal.toInt().toString();
+      } else {
+        _cashController.text = newTotal.toStringAsFixed(2);
+      }
+    });
+  }
+
+  void _clearAmount() {
+    setState(() {
+      _cashController.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -2934,30 +2976,163 @@ class _CashPaymentDialogState extends State<_CashPaymentDialog> {
               ),
               const SizedBox(height: kSpace8),
 
-              // Quick banknote shortcut chips
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
+              // Quick Cash Shortcut Buttons
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ActionChip(
-                    avatar: const Icon(Icons.check, size: 16, color: kCoffee900),
-                    label: Text(
-                      '${locale.t('พอดี', 'Exact')} (฿${total.toStringAsFixed(total % 1 == 0 ? 0 : 2)})',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    backgroundColor: kTan.withValues(alpha: 0.6),
-                    onPressed: () => _setAmount(total),
-                  ),
-                  for (final amount in quickAmounts)
-                    ActionChip(
-                      label: Text(
-                        '฿${amount.toInt()}',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        locale.t(
+                          'ปุ่มลัดรับเงิน (กดซ้ำเพื่อสะสมยอด):',
+                          'Quick Cash (Tap to accumulate):',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: kCoffee700,
+                        ),
                       ),
-                      backgroundColor: Colors.white,
-                      side: const BorderSide(color: kTan),
-                      onPressed: () => _setAmount(amount),
-                    ),
+                      Row(
+                        children: [
+                          InkWell(
+                            onTap: () => _setAmount(total),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: kGreen100,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: kGreen600.withValues(alpha: 0.5)),
+                              ),
+                              child: Text(
+                                locale.t('พอดี', 'Exact'),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: kGreen800,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: _clearAmount,
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.red.shade200),
+                                ),
+                                child: Text(
+                                  locale.t('ล้าง', 'Clear'),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red.shade700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Banknotes row: 1000, 500, 100, 50, 20
+                  Row(
+                    children: [
+                      for (final val in [1000.0, 500.0, 100.0, 50.0, 20.0]) ...[
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                            child: Material(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              child: InkWell(
+                                onTap: () => _addAmount(val),
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  height: 38,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: val >= 500
+                                          ? const Color(0xFF8B5E3C)
+                                          : const Color(0xFFC8A96E),
+                                      width: 1.2,
+                                    ),
+                                    color: val >= 500
+                                        ? const Color(0xFFFBF5EC)
+                                        : Colors.white,
+                                  ),
+                                  child: Text(
+                                    '+${val.toInt()}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace',
+                                      color: val >= 500 ? kCoffee900 : kGreen800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Coins row: 10, 5, 2, 1
+                  Row(
+                    children: [
+                      for (final val in [10.0, 5.0, 2.0, 1.0]) ...[
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                            child: Material(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              child: InkWell(
+                                onTap: () => _addAmount(val),
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  height: 34,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.grey.shade400,
+                                      width: 1.0,
+                                    ),
+                                    color: Colors.grey.shade50,
+                                  ),
+                                  child: Text(
+                                    '+${val.toInt()}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      fontFamily: 'monospace',
+                                      color: Color(0xFF4A3728),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: kSpace16),
@@ -3465,6 +3640,50 @@ class _ReceiptDialog extends StatelessWidget {
                         ],
                       ),
                     ],
+                    if (order.id != null && order.id!.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Divider(color: kCoffee500, height: 1),
+                      const SizedBox(height: 10),
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: kTan),
+                          ),
+                          child: QrImageView(
+                            data: 'https://toto-cafe-kiosk.web.app/receipt/${order.id}',
+                            version: QrVersions.auto,
+                            size: 130,
+                            backgroundColor: Colors.white,
+                            eyeStyle: const QrEyeStyle(
+                              eyeShape: QrEyeShape.square,
+                              color: kCoffee900,
+                            ),
+                            dataModuleStyle: const QrDataModuleStyle(
+                              dataModuleShape: QrDataModuleShape.square,
+                              color: kCoffee900,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Center(
+                        child: Text(
+                          locale.t(
+                            '📲 สแกน QR เพื่อดูใบเสร็จออนไลน์',
+                            '📲 Scan QR for Digital Receipt',
+                          ),
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: kCoffee700,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
 
                     // Centered: "ขอบคุณที่ใช้บริการ"
@@ -3484,33 +3703,20 @@ class _ReceiptDialog extends StatelessWidget {
               ),
               const SizedBox(height: kSpace16),
 
-              // Two buttons at bottom:
-              // 1. "🖨️ พิมพ์ใบเสร็จ" → prints thermal receipt only
-              // 2. "ปิด (ไม่พิมพ์)" → closes dialog only
+              // Done button
               SizedBox(
                 height: 44,
-                child: ElevatedButton(
-                  onPressed: () {
-                    final printOrder = order.copyWith(
-                      receivedAmount: displayReceived,
-                      changeAmount: displayChange,
-                    );
-                    printThermalReceipt(printOrder);
-                    Navigator.of(context).pop();
-                  },
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.check, size: 20),
+                  label: Text(locale.t('เสร็จสิ้น', 'Done')),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kColorPrimary,
                     foregroundColor: kColorWhite,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
-                  child: Text(locale.t('🖨️ พิมพ์ใบเสร็จ', '🖨️ Print Receipt')),
-                ),
-              ),
-              const SizedBox(height: kSpace8),
-              SizedBox(
-                height: 44,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(locale.t('ปิด (ไม่พิมพ์)', 'Close (No Print)')),
                 ),
               ),
             ],

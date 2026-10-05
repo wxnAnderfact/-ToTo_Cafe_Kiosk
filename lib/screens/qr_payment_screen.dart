@@ -14,17 +14,11 @@ import '../services/member_service.dart';
 import '../services/order_service.dart';
 import '../theme.dart';
 import '../utils/customization_rules.dart';
-import '../utils/printer.dart';
+import '../config/payment_config.dart';
 import '../widgets/language_toggle.dart';
 import '../widgets/order_qr_code.dart';
 
-// ---------------------------------------------------------------------------
-// PromptPay ID — store your phone/national-ID in your .env / app config.
-// Replace the value below or inject via --dart-define:
-//   flutter run --dart-define=PROMPTPAY_ID=0812345678
-// ---------------------------------------------------------------------------
-const String _kPromptPayId =
-    String.fromEnvironment('PROMPTPAY_ID', defaultValue: '');
+const String _kPromptPayId = kPromptPayId;
 
 /// หน้าชำระเงินด้วย QR PromptPay (Semi-automated POS Approval flow)
 ///
@@ -1333,29 +1327,20 @@ class _KioskReceiptDialog extends StatelessWidget {
                     const SizedBox(height: kSpace16),
                   ],
 
-                  // Two buttons:
-                  // 1. 🖨️ พิมพ์ใบเสร็จ -> thermal receipt print
+                  // Done button
                   SizedBox(
                     height: 44,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        printThermalReceipt(order);
-                        Navigator.of(context).pop();
-                      },
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.check, size: 20),
+                      label: Text(locale.t('เสร็จสิ้น', 'Done')),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: kColorPrimary,
                         foregroundColor: kColorWhite,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                      child: Text(locale.t('🖨️ พิมพ์ใบเสร็จ', '🖨️ Print Receipt')),
-                    ),
-                  ),
-                  const SizedBox(height: kSpace8),
-                  // 2. ปิด (ไม่พิมพ์) -> outlined
-                  SizedBox(
-                    height: 44,
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: Text(locale.t('ปิด (ไม่พิมพ์)', 'Close (No Print)')),
                     ),
                   ),
                 ],

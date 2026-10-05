@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../services/liff_service.dart';
 import '../services/member_service.dart';
+import '../utils/receipt_sharing.dart';
 
 const Color _kBgColor = Color(0xFF1C2B1C);
 const Color _kCardColor = Color(0xFF2D3D2D);
@@ -109,14 +110,18 @@ class _MemberScreenState extends State<MemberScreen> {
           .snapshots()
           .listen((snapshot) {
         if (mounted) {
-          final list = snapshot.docs.map((d) => d.data()).toList();
+          final list = snapshot.docs.map((d) {
+            final data = Map<String, dynamic>.from(d.data());
+            data['id'] = d.id;
+            return data;
+          }).toList();
           list.sort((a, b) {
             final aTime = _extractDate(a);
             final bTime = _extractDate(b);
             return bTime.compareTo(aTime);
           });
           setState(() {
-            _recentOrders = list.take(10).toList();
+            _recentOrders = list.take(15).toList();
           });
         }
       });
@@ -796,7 +801,7 @@ class _MemberScreenState extends State<MemberScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _recentOrders.length,
                   separatorBuilder: (_, index) =>
-                      const Divider(color: Colors.white12, height: 16),
+                      const Divider(color: Colors.white12, height: 12),
                   itemBuilder: (context, index) {
                     final order = _recentOrders[index];
                     final date = _extractDate(order);
@@ -807,41 +812,102 @@ class _MemberScreenState extends State<MemberScreen> {
                         (order['totalAmount'] as num?)?.toDouble() ??
                         0.0;
                     final pointsEarned = (order['pointsEarned'] as num?)?.toInt() ??
-                        (total / 10).floor();
+                        (total / 20).floor();
+                    final queueNumber = order['queueNumber'] ?? order['queue_number'] ?? '-';
+                    final items = (order['items'] as List<dynamic>?) ?? [];
 
-                    return Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              formattedDate,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 13,
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _showOrderReceiptModal(order),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: _kGoldColor.withValues(alpha: 0.2),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: _kGoldColor.withValues(alpha: 0.5)),
+                                          ),
+                                          child: Text(
+                                            'คิว #$queueNumber',
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: _kGoldColor,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          formattedDate,
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${items.length} รายการ • +$pointsEarned แต้ม',
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '+$pointsEarned แต้ม',
-                              style: const TextStyle(
-                                color: _kGoldColor,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '฿${total.toStringAsFixed(0)}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.receipt_long, size: 12, color: _kGoldColor),
+                                      SizedBox(width: 3),
+                                      Text(
+                                        'ดูใบเสร็จ',
+                                        style: TextStyle(
+                                          color: _kGoldColor,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          '฿${total.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     );
                   },
                 ),
@@ -849,6 +915,423 @@ class _MemberScreenState extends State<MemberScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  void _showOrderReceiptModal(Map<String, dynamic> order) {
+    final GlobalKey receiptBoundaryKey = GlobalKey();
+    bool isSharing = false;
+    final date = _extractDate(order);
+    final formattedDate =
+        '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    final queueNumber = order['queueNumber'] ?? order['queue_number'] ?? '-';
+    final items = (order['items'] as List<dynamic>?) ?? [];
+    final subtotal = (order['subtotal'] as num?)?.toDouble() ?? 0.0;
+    final total = (order['total'] as num?)?.toDouble() ??
+        (order['totalAmount'] as num?)?.toDouble() ??
+        0.0;
+    final discount = (order['discount'] as num?)?.toDouble() ?? 0.0;
+    final redeemedPoints = (order['redeemedPoints'] as num?)?.toInt() ?? 0;
+    final pointsEarned = (order['pointsEarned'] as num?)?.toInt() ?? (total / 20).floor();
+    final paymentMethod = (order['paymentMethod'] ?? '').toString().toLowerCase();
+    final isQr = paymentMethod.contains('qr');
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.90,
+                maxWidth: 440,
+              ),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFBF5EC),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFF1E4CC)),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black45, blurRadius: 25, offset: Offset(0, 8)),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Top header & close
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 16, 0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.receipt_long, color: Color(0xFF2E2118), size: 22),
+                            SizedBox(width: 8),
+                            Text(
+                              'ใบเสร็จรับเงินออนไลน์',
+                              style: TextStyle(
+                                fontFamily: 'Noto Serif Thai',
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2E2118),
+                              ),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Color(0xFF6B4A35)),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(color: Color(0xFFF1E4CC), thickness: 1.5),
+
+                  // Scrollable receipt body wrapped in RepaintBoundary for high-res capture
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                      child: RepaintBoundary(
+                        key: receiptBoundaryKey,
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFBF5EC),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE4DECC)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // Store Name
+                              const Center(
+                                child: Text(
+                                  'ToTo Cafe',
+                                  style: TextStyle(
+                                    fontFamily: 'Noto Serif Thai',
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2E2118),
+                                  ),
+                                ),
+                              ),
+                              const Center(
+                                child: Text(
+                                  'COFFEE & COMFORT',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    letterSpacing: 1.5,
+                                    color: Color(0xFF6B4A35),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+
+                              // Queue & Date Box
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFFE4DECC)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'หมายเลขคิว',
+                                          style: TextStyle(fontSize: 11, color: Color(0xFF6B4A35)),
+                                        ),
+                                        Text(
+                                          '#$queueNumber',
+                                          style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF2E3D26),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        const Text(
+                                          'วันที่ / เวลา',
+                                          style: TextStyle(fontSize: 11, color: Color(0xFF6B4A35)),
+                                        ),
+                                        Text(
+                                          formattedDate,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            fontFamily: 'monospace',
+                                            color: Color(0xFF2E2118),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+
+                              // Items List
+                              const Text(
+                                'รายการสินค้า:',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF2E2118),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              ...items.map((it) {
+                                final itemMap = it is Map<String, dynamic>
+                                    ? it
+                                    : (it as Map).cast<String, dynamic>();
+                                final name = (itemMap['name'] ?? '').toString();
+                                final qty = (itemMap['quantity'] ?? 1) as num;
+                                final lineTotal = (itemMap['lineTotal'] as num?)?.toDouble() ??
+                                    ((itemMap['price'] as num?)?.toDouble() ?? 0.0) * qty;
+                                final sweetness = itemMap['sweetness']?.toString();
+                                final milkType = itemMap['milkType']?.toString();
+
+                                final mods = <String>[];
+                                if (sweetness != null && sweetness.isNotEmpty) {
+                                  mods.add('หวาน $sweetness');
+                                }
+                                if (milkType != null && milkType.isNotEmpty && milkType != 'none') {
+                                  mods.add(milkType);
+                                }
+
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              '$name x$qty',
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF2E2118),
+                                              ),
+                                            ),
+                                          ),
+                                          Text(
+                                            '฿${lineTotal.toStringAsFixed(2)}',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'monospace',
+                                              color: Color(0xFF2E2118),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (mods.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 6, top: 1),
+                                          child: Text(
+                                            '(${mods.join(' • ')})',
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              color: Color(0xFF6B4A35),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                              const SizedBox(height: 10),
+                              const Divider(color: Color(0xFFE4DECC)),
+
+                              // Financial Summary
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('ยอดรวม:', style: TextStyle(fontSize: 12, color: Color(0xFF6B4A35))),
+                                  Text('฿${subtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                                ],
+                              ),
+                              if (discount > 0 || redeemedPoints > 0) ...[
+                                const SizedBox(height: 2),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'ส่วนลดแต้ม (-$redeemedPoints แต้ม):',
+                                      style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600),
+                                    ),
+                                    Text(
+                                      '-฿${discount.toStringAsFixed(2)}',
+                                      style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'ยอดสุทธิ:',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF2E2118),
+                                    ),
+                                  ),
+                                  Text(
+                                    '฿${total.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace',
+                                      color: Color(0xFF2E3D26),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('การชำระเงิน:', style: TextStyle(fontSize: 12, color: Color(0xFF6B4A35))),
+                                  Text(
+                                    isQr ? 'QR PromptPay' : 'เงินสด (Cash)',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E2118)),
+                                  ),
+                                ],
+                              ),
+                              if (pointsEarned > 0) ...[
+                                const SizedBox(height: 2),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text('แต้มที่ได้รับ:', style: TextStyle(fontSize: 12, color: Color(0xFF6B4A35))),
+                                    Text('+$pointsEarned แต้ม', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFC8A96E))),
+                                  ],
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              const Center(
+                                child: Text(
+                                  'ขอบคุณที่ใช้บริการ ToTo Cafe',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                    color: Color(0xFF6B4A35),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Bottom Action Buttons
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Share Image Button
+                        SizedBox(
+                          width: double.infinity,
+                          height: 46,
+                          child: ElevatedButton.icon(
+                            onPressed: isSharing
+                                ? null
+                                : () async {
+                                    setModalState(() => isSharing = true);
+                                    try {
+                                      final bytes = await captureWidgetToImage(receiptBoundaryKey);
+                                      if (bytes != null) {
+                                        final queueStr = queueNumber.toString();
+                                        final success = await shareOrDownloadReceipt(
+                                          bytes: bytes,
+                                          filename: 'toto_receipt_queue_$queueStr.png',
+                                          title: 'ใบเสร็จ ToTo Cafe คิว #$queueStr',
+                                          text: 'ใบเสร็จรับเงิน ToTo Cafe คิว #$queueStr ยอดรวม ฿${total.toStringAsFixed(2)}',
+                                        );
+                                        if (mounted && success) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('แชร์ / บันทึกรูปภาพใบเสร็จเรียบร้อย'),
+                                              backgroundColor: Color(0xFF2E3D26),
+                                              duration: Duration(seconds: 2),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    } catch (e) {
+                                      debugPrint('[MemberReceipt] Share error: $e');
+                                    } finally {
+                                      setModalState(() => isSharing = false);
+                                    }
+                                  },
+                            icon: isSharing
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2),
+                                  )
+                                : const Icon(Icons.share, size: 20),
+                            label: const Text(
+                              '📲 แชร์ / บันทึกรูปภาพใบเสร็จ',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2E3D26),
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Close Button
+                        SizedBox(
+                          width: double.infinity,
+                          height: 40,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF2E2118),
+                              side: const BorderSide(color: Color(0xFFE4DECC)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text('ปิด', style: TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
